@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewResult",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "review_id",
+    "hypothesis_id",
+    "decision",
+    "supporting_points",
+    "counterarguments",
+    "missing_evidence",
+    "falsification_tests",
+    "rationale",
+    "reviewer_model"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "review_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "hypothesis_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["accept_for_validation", "request_more_evidence", "reject_hypothesis"]
+    },
+    "supporting_points": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "counterarguments": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "falsification_tests": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_model": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

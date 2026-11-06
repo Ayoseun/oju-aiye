@@ -1,0 +1,42 @@
+services:
+  # Self-hosted local inference container (no external cloud calls)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vuln-research-inference
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    # If running on Linux with an NVIDIA GPU, enable the GPU reservation below:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Autonomous Vulnerability Research Coordinator & API Daemon
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    container_name: vuln-research-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ollama
+    environment:
+      - AUTO_PULL_MODELS=true
+    volumes:
+      - vuln_artifacts:/app/var/artifacts
+      - ../web:/app/web:ro
+    command: ["-config", "configs/config.docker.yaml", "-auto-pull"]
+
+volumes:
+  ollama_models:
+    name: vuln_research_ollama_models
+  vuln_artifacts:
+    name: vuln_research_artifacts

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hypothesis",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "hypothesis_id",
+    "candidate_id",
+    "title",
+    "weakness",
+    "affected_locations",
+    "security_invariant",
+    "preconditions",
+    "attacker_controlled_inputs",
+    "expected_failure",
+    "impact",
+    "supporting_evidence_ids",
+    "counterarguments",
+    "validation_plan",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "hypothesis_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "candidate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "weakness": {
+      "type": "object",
+      "required": ["cwe", "category"],
+      "properties": {
+        "cwe": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "affected_locations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "symbol", "line_start", "line_end"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "symbol": { "type": "string" },
+          "line_start": { "type": "integer", "minimum": 1 },
+          "line_end": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "security_invariant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "attacker_controlled_inputs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "expected_failure": {
+      "type": "string",
+      "minLength": 1
+    },
+    "impact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "supporting_evidence_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "counterarguments": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "validation_plan": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "under_review", "ready_for_validation", "confirmed", "refuted", "inconclusive", "needs_more_evidence"]
+    }
+  },
+  "additionalProperties": false
+}

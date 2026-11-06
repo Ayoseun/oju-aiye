@@ -1,0 +1,54 @@
+app:
+  environment: development
+  log_level: info
+  http_port: 8080
+
+research:
+  max_concurrent_jobs: 1
+  max_hypotheses_per_job: 20
+  max_iterations_per_hypothesis: 4
+  max_agent_retries: 2
+  job_timeout_seconds: 1800
+  require_reviewer_before_validation: true
+
+validation:
+  enabled: true
+  network_access: disabled
+  max_runtime_seconds: 120
+  max_memory_mb: 1024
+  max_cpu_seconds: 60
+  max_processes: 64
+  max_artifact_mb: 100
+
+models:
+  scout:
+    adapter: openai-compatible
+    model_id: ${SCOUT_MODEL_ID}
+    base_url: ${SCOUT_BASE_URL}
+    api_key_env: SCOUT_API_KEY
+    timeout_seconds: 90
+    max_output_tokens: 2500
+    temperature: 0.1
+
+  investigator:
+    adapter: openai-compatible
+    model_id: ${INVESTIGATOR_MODEL_ID}
+    base_url: ${INVESTIGATOR_BASE_URL}
+    api_key_env: INVESTIGATOR_API_KEY
+    timeout_seconds: 180
+    max_output_tokens: 5000
+    temperature: 0.1
+
+  reviewer:
+    adapter: openai-compatible
+    model_id: ${REVIEWER_MODEL_ID}
+    base_url: ${REVIEWER_BASE_URL}
+    api_key_env: REVIEWER_API_KEY
+    timeout_seconds: 180
+    max_output_tokens: 4000
+    temperature: 0.1
+
+storage:
+  postgres_dsn_env: DATABASE_URL
+  artifact_backend: local
+  artifact_directory: ./var/artifacts

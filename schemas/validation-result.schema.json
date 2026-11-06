@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ValidationResult",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "validation_id",
+    "hypothesis_id",
+    "environment_id",
+    "test_command_id",
+    "exit_code",
+    "outcome",
+    "stdout_artifact",
+    "stderr_artifact",
+    "test_artifact",
+    "environment_fingerprint",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "validation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "hypothesis_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "environment_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "test_command_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["reproduced", "refuted", "inconclusive", "setup_failed"]
+    },
+    "stdout_artifact": {
+      "type": "string"
+    },
+    "stderr_artifact": {
+      "type": "string"
+    },
+    "test_artifact": {
+      "type": "string"
+    },
+    "environment_fingerprint": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

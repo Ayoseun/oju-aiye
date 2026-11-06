@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Candidate",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "repository_path",
+    "symbol",
+    "line_start",
+    "line_end",
+    "suspected_class",
+    "rationale",
+    "observed_facts",
+    "assumptions",
+    "suggested_next_steps",
+    "confidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "candidate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "repository_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "line_start": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "line_end": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "suspected_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_facts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "suggested_next_steps": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "additionalProperties": false
+}

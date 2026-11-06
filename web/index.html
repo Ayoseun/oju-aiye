@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VULN-HUNTER 8-BIT // Autonomous Research Platform</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* Retro 8-bit & CRT aesthetic */
+    :root {
+      --retro-bg: #0d0f18;
+      --retro-panel: #161a29;
+      --retro-border: #3b4261;
+      --retro-accent: #ff0055;
+      --retro-cyan: #00f0ff;
+      --retro-green: #00ff66;
+      --retro-yellow: #ffdd00;
+      --retro-text: #e0e6ed;
+    }
+
+    body {
+      background-color: var(--retro-bg);
+      color: var(--retro-text);
+      font-family: 'VT323', monospace;
+      font-size: 20px;
+      letter-spacing: 1px;
+      image-rendering: pixelated;
+    }
+
+    .pixel-title {
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    /* Pixelated borders and chunky retro buttons */
+    .pixel-box {
+      border: 4px solid #000;
+      box-shadow: 
+        inset -4px -4px 0px 0px rgba(0, 0, 0, 0.6),
+        inset 4px 4px 0px 0px rgba(255, 255, 255, 0.2),
+        4px 4px 0px 0px #000;
+    }
+
+    .pixel-btn {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+      border: 3px solid #000;
+      box-shadow: 
+        inset -3px -3px 0px 0px rgba(0, 0, 0, 0.4),
+        inset 3px 3px 0px 0px rgba(255, 255, 255, 0.3),
+        3px 3px 0px 0px #000;
+      transition: all 0.05s ease;
+    }
+
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 
+        inset -1px -1px 0px 0px rgba(0, 0, 0, 0.4),
+        inset 1px 1px 0px 0px rgba(255, 255, 255, 0.3),
+        1px 1px 0px 0px #000;
+    }
+
+    /* Scanlines effect */
+    .scanlines {
+      background: linear-gradient(
+        to bottom,
+        rgba(255,255,255,0),
+        rgba(255,255,255,0) 50%,
+        rgba(0, 0, 0, 0.3) 50%,
+        rgba(0, 0, 0, 0.3)
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    .blink {
+      animation: blinker 1s step-start infinite;
+    }
+    @keyframes blinker {
+      50% { opacity: 0; }
+    }
+
+    /* Agent avatar pixel art silhouettes */
+    .pixel-art {
+      width: 48px;
+      height: 48px;
+      display: inline-block;
+      background-size: cover;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-6 relative selection:bg-[#ff0055] selection:text-white">
+
+  <!-- Scanline Overlay -->
+  <div class="scanlines fixed inset-0 z-50 pointer-events-none opacity-40"></div>
+
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Top Header / Marquee -->
+    <header class="pixel-box bg-[#1a1c2e] p-4 flex flex-col md:flex-row items-center justify-between gap-4 border-b-4 border-black">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-[#ff0055] pixel-box flex items-center justify-center text-black font-black text-xl">
+          👾
+        </div>
+        <div>
+          <h1 class="pixel-title text-sm md:text-base text-[#00f0ff] tracking-wider uppercase">
+            VULN-HUNTER <span class="text-[#ff0055]">v1.0</span>
+          </h1>
+          <p class="text-sm text-gray-400">AUTONOMOUS MULTI-AGENT SECURITY FORGE</p>
+        </div>
+      </div>
+
+      <!-- Live Heartbeat / Status Bar -->
+      <div class="flex items-center gap-6 text-sm">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 bg-[#00ff66] inline-block animate-ping rounded-none"></span>
+          <span class="text-[#00ff66] font-bold">DAEMON: READY</span>
+        </div>
+        <div class="text-[#ffdd00]">
+          COORDINATOR: <span id="job-state" class="text-white underline">IDLE</span>
+        </div>
+        <div class="text-gray-400">
+          MEM: <span class="text-cyan-300">128MB</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Command Console & Control Deck -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Left Column: The 3 Agent Specialists (RPG Party) -->
+      <div class="lg:col-span-1 space-y-4">
+        <div class="pixel-box bg-[#131722] p-4">
+          <div class="flex items-center justify-between border-b-2 border-black pb-2 mb-3">
+            <h2 class="pixel-title text-xs text-[#ffdd00] uppercase">⚡ AGENT SQUAD</h2>
+            <span class="text-xs text-gray-400">LVL.99</span>
+          </div>
+
+          <!-- Agent 1: SCOUT -->
+          <div id="card-scout" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#00f0ff] transition-all">
+            <div class="flex items-center gap-3">
+              <div class="text-3xl">🔭</div>
+              <div class="flex-1">
+                <div class="flex justify-between items-center">
+                  <span class="pixel-title text-[10px] text-[#00f0ff]">1. SCOUT</span>
+                  <span id="badge-scout" class="text-xs bg-[#00f0ff] text-black px-1.5 py-0.5 font-bold">READY</span>
+                </div>
+                <div class="text-sm text-gray-300 mt-1">Role: Candidate Discovery</div>
+                <div class="text-xs text-gray-400">Model: Qwen2.5-Coder:32B</div>
+                <!-- Mini Progress Bar -->
+                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
+                  <div id="bar-scout" class="bg-[#00f0ff] h-full w-0 transition-all duration-300"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agent 2: INVESTIGATOR -->
+          <div id="card-investigator" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#ffdd00] transition-all">
+            <div class="flex items-center gap-3">
+              <div class="text-3xl">🧪</div>
+              <div class="flex-1">
+                <div class="flex justify-between items-center">
+                  <span class="pixel-title text-[10px] text-[#ffdd00]">2. INVESTIGATOR</span>
+                  <span id="badge-investigator" class="text-xs bg-gray-700 text-white px-1.5 py-0.5">STANDBY</span>
+                </div>
+                <div class="text-sm text-gray-300 mt-1">Role: Invariant & Hypothesis</div>
+                <div class="text-xs text-gray-400">Model: DeepSeek-Coder-V2</div>
+                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
+                  <div id="bar-investigator" class="bg-[#ffdd00] h-full w-0 transition-all duration-300"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agent 3: REVIEWER -->
+          <div id="card-reviewer" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#ff0055] transition-all">
+            <div class="flex items-center gap-3">
+              <div class="text-3xl">⚔️</div>
+              <div class="flex-1">
+                <div class="flex justify-between items-center">
+                  <span class="pixel-title text-[10px] text-[#ff0055]">3. REVIEWER</span>
+                  <span id="badge-reviewer" class="text-xs bg-gray-700 text-white px-1.5 py-0.5">STANDBY</span>
+                </div>
+                <div class="text-sm text-gray-300 mt-1">Role: Adversarial Falsifier</div>
+                <div class="text-xs text-gray-400">Model: Llama-3.3-70B</div>
+                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
+                  <div id="bar-reviewer" class="bg-[#ff0055] h-full w-0 transition-all duration-300"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sandbox Runner Info -->
+          <div class="pixel-box bg-black/60 p-3 text-xs space-y-1 text-gray-300">
+            <div class="text-[#00ff66] font-bold">🛡️ DETERMINISTIC SANDBOX</div>
+            <div>Isolation: <span class="text-white">Disposable Container</span></div>
+            <div>Network: <span class="text-red-400 font-bold">OFFLINE (BLOCKED)</span></div>
+            <div>Time Limit: <span class="text-yellow-300">60s Timeout</span></div>
+          </div>
+        </div>
+
+        <!-- Research Actions Panel -->
+        <div class="pixel-box bg-[#161a29] p-4 space-y-3">
+          <div class="pixel-title text-xs text-[#00f0ff] uppercase">🎯 TARGET SCOPE</div>
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">TARGET REPOSITORY</label>
+            <input id="target-repo" type="text" value="audit://defi-lending-vault" class="w-full bg-black text-[#00ff66] border-2 border-black p-2 font-mono text-sm focus:outline-none focus:border-[#00f0ff]">
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">REVISION / COMMIT</label>
+            <input id="target-rev" type="text" value="v1.1.0-release" class="w-full bg-black text-yellow-300 border-2 border-black p-2 font-mono text-sm focus:outline-none focus:border-[#ffdd00]">
+          </div>
+          <button id="btn-start" onclick="startWorkflow()" class="w-full pixel-btn bg-[#00ff66] text-black py-3 text-center font-bold tracking-wider hover:bg-[#33ff88]">
+            ▶ START RESEARCH MISSION
+          </button>
+          <button id="btn-reset" onclick="resetWorkflow()" class="w-full pixel-btn bg-gray-800 text-gray-300 py-2 text-center text-[10px] hover:bg-gray-700">
+            ↺ RESET SYSTEM
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Column: Mission Console & Evidence Registry (2 cols) -->
+      <div class="lg:col-span-2 space-y-4">
+
+        <!-- Retro Terminal Logs -->
+        <div class="pixel-box bg-black p-4 text-[#00ff66] font-mono relative">
+          <div class="flex items-center justify-between border-b-2 border-[#1f293d] pb-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 bg-red-500 inline-block"></span>
+              <span class="w-2.5 h-2.5 bg-yellow-500 inline-block"></span>
+              <span class="w-2.5 h-2.5 bg-green-500 inline-block"></span>
+              <span class="pixel-title text-[10px] text-gray-300 ml-2">COORDINATOR TERMINAL // TTY1</span>
+            </div>
+            <span class="text-xs text-gray-500">POSTGRES: CONNECTED</span>
+          </div>
+
+          <div id="terminal-body" class="h-64 overflow-y-auto space-y-1.5 text-sm pr-2 scrollbar-thin scrollbar-thumb-gray-800">
+            <div class="text-gray-500">[00:00:01] System boot. Engine initialized on go1.27.1.</div>
+            <div class="text-gray-500">[00:00:02] Model adapters configured: Scout, Investigator, Reviewer.</div>
+            <div class="text-gray-500">[00:00:03] Isolated sandbox worker ready with network access DISABLED.</div>
+            <div class="text-yellow-400">[00:00:04] Awaiting research mission submission... <span class="blink">█</span></div>
+          </div>
+        </div>
+
+        <!-- Hypotheses & Validation Trophy Room -->
+        <div class="pixel-box bg-[#161a29] p-4">
+          <div class="flex items-center justify-between border-b-2 border-black pb-2 mb-3">
+            <h2 class="pixel-title text-xs text-[#00f0ff] uppercase">🏆 CONFIRMED LOOT // VULNERABILITY DOSSIER</h2>
+            <div class="flex gap-2 text-xs">
+              <span class="text-[#00ff66]">CONFIRMED: <strong id="count-confirmed">0</strong></span> |
+              <span class="text-red-400">REFUTED: <strong id="count-refuted">0</strong></span>
+            </div>
+          </div>
+
+          <div id="findings-container" class="space-y-3">
+            <!-- Placeholder empty message -->
+            <div id="empty-loot" class="pixel-box bg-[#121520] p-6 text-center text-gray-500 text-sm">
+              NO VULNERABILITY CONFIRMED YET.<br>
+              SUBMIT A TARGET TO COMMENCE RECONNAISSANCE.
+            </div>
+          </div>
+        </div>
+
+        <!-- Evidence & Artifact Ledger -->
+        <div class="pixel-box bg-[#121520] p-3 text-xs text-gray-400 flex flex-wrap items-center justify-between gap-3">
+          <div>EVIDENCE HASH: <span id="art-hash" class="text-cyan-400 font-mono">e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</span></div>
+          <div class="text-[#ffdd00]">EVALUATION: <span id="eval-status">DETERMINISTIC_SANDBOX</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Retro Footer -->
+    <footer class="text-center text-xs text-gray-500 pixel-title pt-4">
+      [PRESS START TO AUDIT] &bull; GROUNDED IN CODE FACTS &bull; ZERO FABRICATION POLICY
+    </footer>
+
+  </div>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    let step = 0;
+    let timer = null;
+
+    function log(msg, colorClass = "text-gray-300") {
+      const term = document.getElementById("terminal-body");
+      const time = new Date().toTimeString().split(" ")[0];
+      const line = document.createElement("div");
+      line.className = colorClass;
+      line.innerHTML = `[${time}] ${msg}`;
+      term.appendChild(line);
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function setBadge(id, text, colorBg, colorText = "text-black") {
+      const badge = document.getElementById(id);
+      badge.className = `text-xs ${colorBg} ${colorText} px-1.5 py-0.5 font-bold uppercase`;
+      badge.innerText = text;
+    }
+
+    function setBar(id, percent) {
+      document.getElementById(id).style.width = percent + "%";
+    }
+
+    function setJobState(state, colorClass = "text-white") {
+      const el = document.getElementById("job-state");
+      el.className = `${colorClass} font-bold underline uppercase`;
+      el.innerText = state;
+    }
+
+    function resetWorkflow() {
+      if (timer) clearInterval(timer);
+      step = 0;
+      setJobState("IDLE", "text-white");
+      setBadge("badge-scout", "READY", "bg-[#00f0ff]", "text-black");
+      setBadge("badge-investigator", "STANDBY", "bg-gray-700", "text-white");
+      setBadge("badge-reviewer", "STANDBY", "bg-gray-700", "text-white");
+      setBar("bar-scout", 0);
+      setBar("bar-investigator", 0);
+      setBar("bar-reviewer", 0);
+      document.getElementById("count-confirmed").innerText = "0";
+      document.getElementById("count-refuted").innerText = "0";
+      document.getElementById("findings-container").innerHTML = `
+        <div id="empty-loot" class="pixel-box bg-[#121520] p-6 text-center text-gray-500 text-sm">
+          NO VULNERABILITY CONFIRMED YET.<br>
+          SUBMIT A TARGET TO COMMENCE RECONNAISSANCE.
+        </div>
+      `;
+      log("System reset to standby.", "text-gray-400");
+    }
+
+    function startWorkflow() {
+      resetWorkflow();
+      const repo = document.getElementById("target-repo").value;
+      const rev = document.getElementById("target-rev").value;
+
+      log(`▶ MISSION STARTED: Target ${repo} @ ${rev}`, "text-[#00f0ff] font-bold");
+      setJobState("PREPARING_TARGET", "text-yellow-300");
+
+      const timeline = [
+        // 1. Inventory & Scout
+        {
+          delay: 800,
+          action: () => {
+            setJobState("DISCOVERING", "text-[#00f0ff]");
+            setBadge("badge-scout", "HUNTING", "bg-[#00f0ff]", "text-black animate-pulse");
+            setBar("bar-scout", 50);
+            log("Scout examining source trees, symbols, and trust boundaries...", "text-[#00f0ff]");
+          }
+        },
+        {
+          delay: 2000,
+          action: () => {
+            setBar("bar-scout", 100);
+            setBadge("badge-scout", "LEAD FOUND", "bg-[#00ff66]", "text-black");
+            log("🎯 Scout surfaced candidate: `contracts/Vault.sol:45` (CWE-841: Reentrancy)", "text-[#00ff66]");
+          }
+        },
+        // 2. Investigator
+        {
+          delay: 3200,
+          action: () => {
+            setJobState("ANALYZING", "text-[#ffdd00]");
+            setBadge("badge-investigator", "ANALYZING", "bg-[#ffdd00]", "text-black animate-pulse");
+            setBar("bar-investigator", 60);
+            log("Investigator tracing input dataflow & state transition invariants...", "text-[#ffdd00]");
+          }
+        },
+        {
+          delay: 4800,
+          action: () => {
+            setBar("bar-investigator", 100);
+            setBadge("badge-investigator", "HYPOTHESIS READY", "bg-[#00ff66]", "text-black");
+            log("📜 Formulated Hypothesis: State balances decremented AFTER external token call", "text-[#ffdd00]");
+          }
+        },
+        // 3. Reviewer
+        {
+          delay: 6000,
+          action: () => {
+            setJobState("REVIEWING", "text-[#ff0055]");
+            setBadge("badge-reviewer", "ATTACKING", "bg-[#ff0055]", "text-white animate-pulse");
+            setBar("bar-reviewer", 50);
+            log("Reviewer checking for reentrancy locks, compiler guards, or unreachable paths...", "text-[#ff0055]");
+          }
+        },
+        {
+          delay: 7500,
+          action: () => {
+            setBar("bar-reviewer", 100);
+            setBadge("badge-reviewer", "ACCEPTED", "bg-[#00ff66]", "text-black");
+            log("⚔️ Reviewer decision: ACCEPT_FOR_VALIDATION! No lock found. Test approved.", "text-[#00ff66] font-bold");
+            setJobState("READY_FOR_VALIDATION", "text-yellow-300");
+          }
+        },
+        // 4. Sandbox Validation
+        {
+          delay: 8800,
+          action: () => {
+            setJobState("VALIDATING", "text-purple-400");
+            log("🛡️ Spawning isolated disposable sandbox (`/tmp/val-sandbox-8a9d`)...", "text-purple-400");
+            log("🔒 Enforcing network deny: GOPROXY=off CARGO_NET_OFFLINE=true", "text-gray-400");
+            log("⚡ Running reproduction plan: `forge test --mt testReentrantDrain`...", "text-yellow-300");
+          }
+        },
+        {
+          delay: 10500,
+          action: () => {
+            setJobState("CONFIRMED", "text-[#00ff66]");
+            log("💥 SANDBOX EXIT CODE: 1 (Invariant violated: balance < 0)", "text-red-400 font-bold");
+            log("🏆 VULNERABILITY REPRODUCED CONFIRMED! Artifact saved.", "text-[#00ff66] font-bold");
+            document.getElementById("count-confirmed").innerText = "1";
+            document.getElementById("art-hash").innerText = "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069";
+
+            // Add confirmed loot card
+            document.getElementById("findings-container").innerHTML = `
+              <div class="pixel-box bg-[#1b2233] p-4 border-l-4 border-l-[#00ff66] space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="pixel-title text-xs text-[#00ff66]">CRITICAL // CWE-841 REENTRANCY</span>
+                  <span class="text-xs bg-[#00ff66] text-black px-2 py-0.5 font-bold">REPRODUCED</span>
+                </div>
+                <div class="text-sm font-bold text-white">Cross-Function Reentrancy During Vault Withdrawal</div>
+                <div class="text-xs text-gray-300">Location: <span class="text-yellow-300 font-mono">contracts/Vault.sol:45-62 (withdraw)</span></div>
+                <div class="text-xs text-gray-400">Security Invariant: <span class="text-gray-200">Vault total assets must match user liabilities</span></div>
+                <div class="pixel-box bg-black/80 p-2 text-xs font-mono text-[#00ff66] mt-2">
+                  [REPRODUCTION LOG] AssertionFailed: Vault drained by 10,000 ETH (ExitCode: 1)
+                </div>
+              </div>
+            `;
+          }
+        }
+      ];
+
+      timeline.forEach(t => setTimeout(t.action, t.delay));
+    }
+  </script>
+</body>
+</html>

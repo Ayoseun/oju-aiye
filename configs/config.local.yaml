@@ -1,0 +1,44 @@
+app:
+  environment: local-test
+  log_level: info
+  http_port: 8080
+
+research:
+  max_concurrent_jobs: 1
+  max_hypotheses_per_job: 5
+  max_iterations_per_hypothesis: 2
+  job_timeout_seconds: 600
+
+validation:
+  enabled: true
+  network_access: disabled
+  max_runtime_seconds: 60
+
+models:
+  scout:
+    adapter: openai-compatible
+    model_id: llama3.1:8b
+    base_url: http://localhost:11434/v1
+    timeout_seconds: 120
+    max_output_tokens: 2500
+    temperature: 0.1
+
+  investigator:
+    adapter: openai-compatible
+    model_id: llama3.1:8b
+    base_url: http://localhost:11434/v1
+    timeout_seconds: 180
+    max_output_tokens: 3000
+    temperature: 0.1
+
+  reviewer:
+    adapter: openai-compatible
+    model_id: llama3.1:8b
+    base_url: http://localhost:11434/v1
+    timeout_seconds: 180
+    max_output_tokens: 2500
+    temperature: 0.1
+
+storage:
+  artifact_backend: local
+  artifact_directory: var/artifacts
