@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -55,6 +56,7 @@ func main() {
 				APIKey:       mCfg.GetAPIKey(),
 				ModelID:      mCfg.ModelID,
 				Timeout:      mCfg.Timeout(),
+				MaxRetries:   cfg.Research.MaxAgentRetries,
 				ProviderName: mCfg.Adapter,
 			})
 			reg.Register(role, adapter)
@@ -92,6 +94,9 @@ func main() {
 			}
 		}
 	}
+
+	// Running jobs, so cancellation can interrupt in-flight agent calls and validation.
+	var running sync.Map // uuid.UUID -> context.CancelFunc
 
 	mux := http.NewServeMux()
 
@@ -170,7 +175,11 @@ func main() {
 			// Automatically dispatch coordinator in background
 			go func(jID uuid.UUID, repoPath string) {
 				ctx, cancel := context.WithTimeout(context.Background(), cfg.Research.JobTimeout())
-				defer cancel()
+				running.Store(jID, cancel)
+				defer func() {
+					running.Delete(jID)
+					cancel()
+				}()
 
 				// Build source context summary if local path exists
 				sourceContext := fmt.Sprintf("Repository reference: %s", repoPath)
@@ -233,6 +242,9 @@ func main() {
 				return
 			}
 			_ = s.UpdateJobStatus(r.Context(), jobID, "operator", domain.JobStatusCancelled, "User requested cancellation")
+			if cancelFn, ok := running.Load(jobID); ok {
+				cancelFn.(context.CancelFunc)()
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"cancelled"}`))
 

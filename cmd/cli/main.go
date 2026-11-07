@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -62,7 +63,19 @@ func main() {
 			fmt.Println("Usage: cli report <job_id> [--format json|markdown]")
 			os.Exit(1)
 		}
-		fetchReport(*serverURL, args[1], *format)
+		// Go's flag package stops at the first positional arg, so also accept
+		// `report <id> --format markdown` (as documented) after the subcommand.
+		reportFormat := *format
+		for i := 2; i < len(args); i++ {
+			switch {
+			case (args[i] == "--format" || args[i] == "-format") && i+1 < len(args):
+				reportFormat = args[i+1]
+				i++
+			case strings.HasPrefix(args[i], "--format="):
+				reportFormat = strings.TrimPrefix(args[i], "--format=")
+			}
+		}
+		fetchReport(*serverURL, args[1], reportFormat)
 
 	case "health":
 		checkHealth(*serverURL)

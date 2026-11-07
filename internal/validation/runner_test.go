@@ -2,6 +2,8 @@ package validation
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -119,5 +121,99 @@ func TestValidationRunnerTimeoutEnforcement(t *testing.T) {
 
 	if res.Outcome != domain.ValidationOutcomeInconclusive {
 		t.Errorf("expected inconclusive outcome for timeout, got '%s'", res.Outcome)
+	}
+}
+
+func newTestRunner(t *testing.T) *Runner {
+	t.Helper()
+	return NewRunner(config.ValidationConfig{
+		Enabled:           true,
+		NetworkAccess:     "disabled",
+		MaxRuntimeSeconds: 10,
+	}, t.TempDir())
+}
+
+// A missing tool (exit 127) must be a setup failure, never a "reproduced" finding.
+func TestValidationRunnerMissingToolIsSetupFailure(t *testing.T) {
+	res, err := newTestRunner(t).Execute(context.Background(), ExecutionRequest{
+		HypothesisID: uuid.New(),
+		Command:      "sh",
+		Args:         []string{"-c", "definitely-not-a-real-binary-xyz"},
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != domain.ValidationOutcomeSetupFailed {
+		t.Fatalf("expected setup_failed for exit %d, got %s", res.ExitCode, res.Outcome)
+	}
+}
+
+// Host secrets must not leak into model-generated test commands.
+func TestValidationRunnerScrubsEnvironment(t *testing.T) {
+	t.Setenv("OJU_TEST_SECRET", "hunter2")
+	res, err := newTestRunner(t).Execute(context.Background(), ExecutionRequest{
+		HypothesisID: uuid.New(),
+		Command:      "sh",
+		Args:         []string{"-c", `[ -z "$OJU_TEST_SECRET" ]`},
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("host secret leaked into sandbox (exit %d, outcome %s)", res.ExitCode, res.Outcome)
+	}
+}
+
+// Tests run against a copy of the source: the original tree is never modified,
+// and .git is not copied.
+func TestValidationRunnerStagesSourceCopy(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "vault.sol"), []byte("contract V{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".git", "config"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := newTestRunner(t).Execute(context.Background(), ExecutionRequest{
+		HypothesisID: uuid.New(),
+		SourceDir:    src,
+		Command:      "sh",
+		Args:         []string{"-c", "test -f vault.sol && test ! -e .git && touch mutated"},
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("command should see vault.sol and no .git in the staged copy (exit %d)", res.ExitCode)
+	}
+	if _, statErr := os.Stat(filepath.Join(src, "mutated")); statErr == nil {
+		t.Fatal("test modified the original source tree")
+	}
+}
+
+// A child that keeps the output pipes open must not hang the runner past the timeout.
+func TestValidationRunnerTimeoutKillsProcessGroup(t *testing.T) {
+	start := time.Now()
+	res, err := newTestRunner(t).Execute(context.Background(), ExecutionRequest{
+		HypothesisID: uuid.New(),
+		Command:      "sh",
+		Args:         []string{"-c", "sleep 30 & sleep 30"},
+		Timeout:      1 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("runner hung for %v after timeout", elapsed)
+	}
+	if res.Outcome != domain.ValidationOutcomeInconclusive {
+		t.Fatalf("expected inconclusive on timeout, got %s", res.Outcome)
 	}
 }

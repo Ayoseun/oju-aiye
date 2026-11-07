@@ -28,6 +28,10 @@ COPY --from=builder /app/schemas /app/schemas
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/web /app/web
 
+# Model-generated validation commands run inside this container, so don't run as root.
+RUN adduser -D -u 10001 app && mkdir -p /app/var/artifacts && chown -R app:app /app/var
+USER app
+
 ENV PATH="/app/bin:${PATH}"
 EXPOSE 8080
 

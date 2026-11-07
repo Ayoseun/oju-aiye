@@ -14,7 +14,7 @@ GREEN := \033[32m
 YELLOW := \033[33m
 RESET := \033[0m
 
-.PHONY: all help build test test-race run-api run-api-autopull clean docker-build docker-up docker-down docker-logs docker-cli fmt lint
+.PHONY: all help build test test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
 
 all: help
 

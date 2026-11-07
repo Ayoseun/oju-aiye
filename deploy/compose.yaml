@@ -33,6 +33,8 @@ services:
     volumes:
       - vuln_artifacts:/app/var/artifacts
       - ../web:/app/web:ro
+      # Put repositories to audit under ./targets (override with TARGETS_DIR); reference them as /targets/<name>
+      - ${TARGETS_DIR:-../targets}:/targets:ro
     command: ["-config", "configs/config.docker.yaml", "-auto-pull"]
 
 volumes:

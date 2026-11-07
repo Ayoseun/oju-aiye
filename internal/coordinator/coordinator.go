@@ -238,8 +238,14 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 			args = []string{"-c", hyp.ValidationPlan[0]}
 		}
 
+		sourceDir := ""
+		if fi, statErr := os.Stat(job.RepositoryRef); statErr == nil && fi.IsDir() {
+			sourceDir = job.RepositoryRef
+		}
+
 		valReq := validation.ExecutionRequest{
 			HypothesisID: hyp.HypothesisID,
+			SourceDir:    sourceDir,
 			Command:      cmd,
 			Args:         args,
 			Timeout:      time.Duration(c.cfg.Validation.MaxRuntimeSeconds) * time.Second,
