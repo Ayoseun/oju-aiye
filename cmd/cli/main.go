@@ -13,6 +13,7 @@ import (
 func main() {
 	serverURL := flag.String("server", "http://localhost:8080", "Server base URL")
 	format := flag.String("format", "json", "Output format for report (json or markdown)")
+	authorized := flag.Bool("authorized", false, "Confirm you are authorized to audit the target repository (required for create)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -25,13 +26,17 @@ func main() {
 	switch command {
 	case "create":
 		if len(args) < 2 {
-			fmt.Println("Usage: cli create <repository_ref> [revision]")
+			fmt.Println("Usage: cli --authorized create <repository_ref> [revision]")
 			os.Exit(1)
 		}
 		repo := args[1]
 		rev := "HEAD"
 		if len(args) >= 3 {
 			rev = args[2]
+		}
+		if !*authorized {
+			fmt.Println("Refusing to create job: pass --authorized to confirm you are permitted to audit this repository.")
+			os.Exit(1)
 		}
 		createJob(*serverURL, repo, rev)
 

@@ -117,6 +117,11 @@ func (m *MemoryStore) UpdateJobStatus(ctx context.Context, id uuid.UUID, actor s
 
 	job.Status = status
 	job.UpdatedAt = time.Now().UTC()
+	if status == domain.JobStatusFailed {
+		job.ErrorSummary = reason
+		finished := job.UpdatedAt
+		job.FinishedAt = &finished
+	}
 	m.auditRecords = append(m.auditRecords, record)
 	return nil
 }

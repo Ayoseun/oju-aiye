@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,12 +19,12 @@ type AppConfig struct {
 
 // ResearchConfig defines operational limits for research runs.
 type ResearchConfig struct {
-	MaxConcurrentJobs               int           `yaml:"max_concurrent_jobs"`
-	MaxHypothesesPerJob             int           `yaml:"max_hypotheses_per_job"`
-	MaxIterationsPerHypothesis      int           `yaml:"max_iterations_per_hypothesis"`
-	MaxAgentRetries                 int           `yaml:"max_agent_retries"`
-	JobTimeoutSeconds               int           `yaml:"job_timeout_seconds"`
-	RequireReviewerBeforeValidation bool          `yaml:"require_reviewer_before_validation"`
+	MaxConcurrentJobs               int  `yaml:"max_concurrent_jobs"`
+	MaxHypothesesPerJob             int  `yaml:"max_hypotheses_per_job"`
+	MaxIterationsPerHypothesis      int  `yaml:"max_iterations_per_hypothesis"`
+	MaxAgentRetries                 int  `yaml:"max_agent_retries"`
+	JobTimeoutSeconds               int  `yaml:"job_timeout_seconds"`
+	RequireReviewerBeforeValidation bool `yaml:"require_reviewer_before_validation"`
 }
 
 func (r ResearchConfig) JobTimeout() time.Duration {
@@ -94,14 +95,33 @@ type Config struct {
 	Storage    StorageConfig              `yaml:"storage"`
 }
 
-var envPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
+var envPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)(?::-([^}]*))?\}`)
 
-// expandEnv replaces ${VAR_NAME} with the value of the environment variable.
-func expandEnv(raw []byte) []byte {
-	return envPattern.ReplaceAllFunc(raw, func(match []byte) []byte {
-		varName := string(match[2 : len(match)-1])
-		return []byte(os.Getenv(varName))
+// expandEnv replaces ${VAR} and ${VAR:-default} with environment values.
+// A variable that is unset (or empty) and has no default is reported as an
+// error instead of silently expanding to an empty string.
+func expandEnv(raw []byte) ([]byte, error) {
+	var missing []string
+	seen := map[string]bool{}
+	out := envPattern.ReplaceAllFunc(raw, func(match []byte) []byte {
+		sub := envPattern.FindSubmatch(match)
+		name := string(sub[1])
+		if v := os.Getenv(name); v != "" {
+			return []byte(v)
+		}
+		if len(sub[2]) > 0 {
+			return sub[2]
+		}
+		if !seen[name] {
+			seen[name] = true
+			missing = append(missing, name)
+		}
+		return nil
 	})
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("unset environment variables referenced in config (no default): %s", strings.Join(missing, ", "))
+	}
+	return out, nil
 }
 
 // Load loads and parses a YAML configuration file with environment variable expansion.
@@ -111,7 +131,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	expanded := expandEnv(data)
+	expanded, err := expandEnv(data)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		App: AppConfig{

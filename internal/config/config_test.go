@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,26 @@ models:
 	_, err := Load(configPath)
 	if err == nil {
 		t.Fatalf("expected error for missing model roles, got nil")
+	}
+}
+
+func TestExpandEnvDefaultsAndMissing(t *testing.T) {
+	t.Setenv("PRESENT_VAR", "set")
+	out, err := expandEnv([]byte("a=${PRESENT_VAR} b=${ABSENT_WITH_DEFAULT:-fallback}"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(out) != "a=set b=fallback" {
+		t.Fatalf("unexpected expansion: %q", out)
+	}
+
+	_, err = expandEnv([]byte("x=${ABSENT_NO_DEFAULT_ONE} y=${ABSENT_NO_DEFAULT_TWO}"))
+	if err == nil {
+		t.Fatal("expected error for unset variables without defaults")
+	}
+	for _, name := range []string{"ABSENT_NO_DEFAULT_ONE", "ABSENT_NO_DEFAULT_TWO"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Fatalf("error should name %s: %v", name, err)
+		}
 	}
 }

@@ -23,8 +23,8 @@ validation:
 models:
   scout:
     adapter: openai-compatible
-    model_id: ${SCOUT_MODEL_ID}
-    base_url: ${SCOUT_BASE_URL}
+    model_id: ${SCOUT_MODEL_ID:-huihui_ai/qwen2.5-coder-7b-instruct-abliterated}
+    base_url: ${SCOUT_BASE_URL:-http://localhost:11434/v1}
     api_key_env: SCOUT_API_KEY
     timeout_seconds: 90
     max_output_tokens: 2500
@@ -32,8 +32,8 @@ models:
 
   investigator:
     adapter: openai-compatible
-    model_id: ${INVESTIGATOR_MODEL_ID}
-    base_url: ${INVESTIGATOR_BASE_URL}
+    model_id: ${INVESTIGATOR_MODEL_ID:-huihui_ai/qwen2.5-coder-7b-instruct-abliterated}
+    base_url: ${INVESTIGATOR_BASE_URL:-http://localhost:11434/v1}
     api_key_env: INVESTIGATOR_API_KEY
     timeout_seconds: 180
     max_output_tokens: 5000
@@ -41,8 +41,8 @@ models:
 
   reviewer:
     adapter: openai-compatible
-    model_id: ${REVIEWER_MODEL_ID}
-    base_url: ${REVIEWER_BASE_URL}
+    model_id: ${REVIEWER_MODEL_ID:-huihui_ai/qwen2.5-coder-7b-instruct-abliterated}
+    base_url: ${REVIEWER_BASE_URL:-http://localhost:11434/v1}
     api_key_env: REVIEWER_API_KEY
     timeout_seconds: 180
     max_output_tokens: 4000

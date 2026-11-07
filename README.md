@@ -100,7 +100,7 @@ make docker-logs
 #    http://localhost:8080/
 
 # 4. Submit an audit job via the container CLI:
-make docker-cli ARGS="create audit://my-target-repo HEAD"
+make docker-cli ARGS="--authorized create audit://my-target-repo HEAD"
 
 # 5. Stop the stack when done:
 make docker-down
@@ -149,8 +149,8 @@ The CLI client (`bin/cli`) communicates with the API daemon:
 # Query health and readiness probes
 ./bin/cli health
 
-# Submit a repository for an automated research run
-./bin/cli create /path/to/target-repo HEAD
+# Submit a repository for an automated research run (--authorized confirms you may audit it)
+./bin/cli --authorized create /path/to/target-repo HEAD
 
 # List active and completed jobs
 ./bin/cli list

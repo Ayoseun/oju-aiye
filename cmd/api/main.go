@@ -45,6 +45,7 @@ func main() {
 
 	s := store.NewMemoryStore()
 
+	health := telemetry.NewHealthService()
 	reg := models.NewRegistry()
 	for role, mCfg := range cfg.Models {
 		switch mCfg.Adapter {
@@ -57,8 +58,11 @@ func main() {
 				ProviderName: mCfg.Adapter,
 			})
 			reg.Register(role, adapter)
+			health.Register("model:"+role, adapter)
 		case "fake":
-			reg.Register(role, models.NewFakeAdapter(mCfg.ModelID))
+			fake := models.NewFakeAdapter(mCfg.ModelID)
+			reg.Register(role, fake)
+			health.Register("model:"+role, fake)
 		default:
 			telemetry.Error("Unrecognized adapter type", "CONFIG_ERROR", map[string]interface{}{
 				"role":    role,
@@ -89,7 +93,6 @@ func main() {
 		}
 	}
 
-	health := telemetry.NewHealthService()
 	mux := http.NewServeMux()
 
 	// Serve retro 8-bit web console
@@ -138,6 +141,12 @@ func main() {
 			if req.RepositoryRef == "" {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"repository_ref is required"}`))
+				return
+			}
+
+			if authorized, _ := req.AuthorizationScope["authorized"].(bool); !authorized {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"authorization_scope.authorized must be true: confirm you are permitted to audit this repository"}`))
 				return
 			}
 

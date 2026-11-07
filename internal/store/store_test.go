@@ -109,3 +109,22 @@ func TestMemoryStoreCandidatesAndHypotheses(t *testing.T) {
 		t.Fatalf("failed to fetch hypothesis: %v", err)
 	}
 }
+
+func TestUpdateJobStatusFailedPersistsReason(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	job := &domain.ResearchJob{ID: uuid.New(), Status: domain.JobStatusQueued}
+	if err := s.CreateJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateJobStatus(ctx, job.ID, "coordinator", domain.JobStatusFailed, "Scout failed: connection refused"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ErrorSummary != "Scout failed: connection refused" || got.FinishedAt == nil {
+		t.Fatalf("failure reason/finish time not persisted: %+v", got)
+	}
+}
