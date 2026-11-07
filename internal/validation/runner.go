@@ -3,6 +3,8 @@ package validation
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -142,8 +144,8 @@ func (r *Runner) Execute(ctx context.Context, req ExecutionRequest) (*domain.Val
 	}
 
 	// 7. Store artifacts
-	stdoutRec, _ := tools.StoreArtifact(r.artifactDir, fmt.Sprintf("%s-stdout.log", valID), stdoutBuf.Bytes())
-	stderrRec, _ := tools.StoreArtifact(r.artifactDir, fmt.Sprintf("%s-stderr.log", valID), stderrBuf.Bytes())
+	stdoutRec, _ := storeContentAddressed(r.artifactDir, stdoutBuf.Bytes())
+	stderrRec, _ := storeContentAddressed(r.artifactDir, stderrBuf.Bytes())
 
 	stdoutRef := ""
 	if stdoutRec != nil {
@@ -310,4 +312,11 @@ func copySourceTree(src, dst string, maxBytes int64) error {
 		}
 		return out.Close()
 	})
+}
+
+// storeContentAddressed stores content as <sha256>.log so an artifact://<sha256>
+// reference maps directly (and only) to that file.
+func storeContentAddressed(dir string, content []byte) (*tools.ArtifactRecord, error) {
+	sum := sha256.Sum256(content)
+	return tools.StoreArtifact(dir, hex.EncodeToString(sum[:])+".log", content)
 }

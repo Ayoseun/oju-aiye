@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +22,7 @@ import (
 	"vuln-research/internal/domain"
 	"vuln-research/internal/models"
 	"vuln-research/internal/reports"
+	"vuln-research/internal/state"
 	"vuln-research/internal/store"
 	"vuln-research/internal/telemetry"
 	"vuln-research/internal/tools"
@@ -100,7 +104,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Serve retro 8-bit web console
+	// Serve the web console (single self-contained page; no external resources)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/ui" {
 			http.NotFound(w, r)
@@ -111,6 +115,12 @@ func main() {
 			http.Error(w, "web UI asset not found", http.StatusNotFound)
 			return
 		}
+		// The page renders model- and repository-derived text, so lock it down: same-origin
+		// requests only, nothing external can load, and it cannot be framed.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(html)
 	})
@@ -200,6 +210,37 @@ func main() {
 		}
 	})
 
+	// Validation output (stdout/stderr) by content hash. Only <sha256>.log files inside the
+	// artifact directory can be read; the hash is validated so no path can be smuggled in.
+	artifactHash := regexp.MustCompile(`^[0-9a-f]{64}$`)
+	mux.HandleFunc("/api/v1/artifacts/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		sum := strings.TrimPrefix(r.URL.Path, "/api/v1/artifacts/")
+		if !artifactHash.MatchString(sum) {
+			http.Error(w, `{"error":"invalid artifact id"}`, http.StatusBadRequest)
+			return
+		}
+		f, err := os.Open(filepath.Join(cfg.Storage.ArtifactDirectory, sum+".log"))
+		if err != nil {
+			http.Error(w, `{"error":"artifact not found"}`, http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+
+		const maxBytes = 64 << 10
+		buf, _ := io.ReadAll(io.LimitReader(f, maxBytes+1))
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if len(buf) > maxBytes {
+			buf = buf[:maxBytes]
+			w.Header().Set("X-Truncated", "true")
+		}
+		_, _ = w.Write(buf)
+	})
+
 	// Job Detail, Cancel & Report Routes
 	mux.HandleFunc("/api/v1/jobs/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1/jobs/")
@@ -248,6 +289,22 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"cancelled"}`))
 
+		case "events":
+			if r.Method != http.MethodGet {
+				http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			transitions, _ := s.ListTransitions(r.Context(), jobID)
+			tasks, _ := s.ListTasks(r.Context(), jobID)
+			if transitions == nil {
+				transitions = []*state.TransitionRecord{}
+			}
+			if tasks == nil {
+				tasks = []*domain.AgentTask{}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"transitions": transitions, "tasks": tasks})
+
 		case "report":
 			if r.Method != http.MethodGet {
 				http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -270,6 +327,8 @@ func main() {
 					AffectedLocations: h.AffectedLocations,
 					SecurityInvariant: h.SecurityInvariant,
 					Impact:            h.Impact,
+					ExpectedFailure:   h.ExpectedFailure,
+					ValidationPlan:    h.ValidationPlan,
 					Counterarguments:  h.Counterarguments,
 					Reviews:           revs,
 					Validations:       vals,

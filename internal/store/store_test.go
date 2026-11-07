@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"vuln-research/internal/domain"
@@ -126,5 +127,72 @@ func TestUpdateJobStatusFailedPersistsReason(t *testing.T) {
 	}
 	if got.ErrorSummary != "Scout failed: connection refused" || got.FinishedAt == nil {
 		t.Fatalf("failure reason/finish time not persisted: %+v", got)
+	}
+}
+
+func TestListTasksAndTransitionsAreScopedToJobInOrder(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	jobA := &domain.ResearchJob{ID: uuid.New(), Status: domain.JobStatusQueued}
+	jobB := &domain.ResearchJob{ID: uuid.New(), Status: domain.JobStatusQueued}
+	for _, j := range []*domain.ResearchJob{jobA, jobB} {
+		if err := s.CreateJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, role := range []string{"scout", "investigator"} {
+		if err := s.CreateTask(ctx, &domain.AgentTask{ID: uuid.New(), JobID: jobA.ID, Role: role}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateTask(ctx, &domain.AgentTask{ID: uuid.New(), JobID: jobB.ID, Role: "scout"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := s.ListTasks(ctx, jobA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 || tasks[0].Role != "scout" || tasks[1].Role != "investigator" {
+		t.Fatalf("expected job A's tasks in creation order, got %+v", tasks)
+	}
+	if tasks[0].StartedAt == nil {
+		t.Fatal("StartedAt should be stamped on create")
+	}
+
+	if err := s.UpdateJobStatus(ctx, jobA.ID, "coordinator", domain.JobStatusPreparingTarget, "start"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateJobStatus(ctx, jobB.ID, "coordinator", domain.JobStatusPreparingTarget, "start"); err != nil {
+		t.Fatal(err)
+	}
+	trs, err := s.ListTransitions(ctx, jobA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trs) != 1 || trs[0].JobID != jobA.ID || trs[0].ToState != domain.JobStatusPreparingTarget {
+		t.Fatalf("expected only job A's transition, got %+v", trs)
+	}
+}
+
+func TestUpdateTaskKeepsStartTime(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	task := &domain.AgentTask{ID: uuid.New(), JobID: uuid.New(), Role: "scout", Status: "running"}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	started := *task.StartedAt
+
+	// The coordinator updates a struct that may not carry StartedAt (e.g. rebuilt or zeroed).
+	done := time.Now().UTC()
+	update := &domain.AgentTask{ID: task.ID, JobID: task.JobID, Role: "scout", Status: "completed", FinishedAt: &done}
+	if err := s.UpdateTask(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetTask(ctx, task.ID)
+	if got.StartedAt == nil || !got.StartedAt.Equal(started) {
+		t.Fatalf("start time lost on update: %v", got.StartedAt)
 	}
 }

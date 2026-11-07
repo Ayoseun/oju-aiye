@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,31 @@ func TestValidationRunnerTimeoutKillsProcessGroup(t *testing.T) {
 	}
 	if res.Outcome != domain.ValidationOutcomeInconclusive {
 		t.Fatalf("expected inconclusive on timeout, got %s", res.Outcome)
+	}
+}
+
+// Output artifacts are stored as <sha256>.log so artifact://<sha256> maps to exactly one file.
+func TestValidationRunnerStoresContentAddressedArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRunner(config.ValidationConfig{Enabled: true, NetworkAccess: "disabled", MaxRuntimeSeconds: 10}, dir)
+	res, err := r.Execute(context.Background(), ExecutionRequest{
+		HypothesisID: uuid.New(),
+		Command:      "sh",
+		Args:         []string{"-c", "echo evidence-line"},
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := strings.TrimPrefix(res.StdoutArtifact, "artifact://")
+	if len(sum) != 64 {
+		t.Fatalf("expected artifact://<sha256>, got %q", res.StdoutArtifact)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, sum+".log"))
+	if err != nil {
+		t.Fatalf("artifact file not found by hash: %v", err)
+	}
+	if !strings.Contains(string(data), "evidence-line") {
+		t.Fatalf("unexpected artifact content: %q", data)
 	}
 }

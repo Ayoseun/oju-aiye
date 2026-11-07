@@ -213,7 +213,7 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "All hypotheses refuted or rejected during adversarial review")
 	}
 
-	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReadyForValidation, fmt.Sprintf("%d hypotheses approved for validation", readyForValidationCount)); err != nil {
+	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReadyForValidation, fmt.Sprintf("%s approved for validation", plural(readyForValidationCount, "hypothesis", "hypotheses"))); err != nil {
 		return err
 	}
 
@@ -279,10 +279,17 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 	})
 
 	if confirmedCount > 0 {
-		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusConfirmed, fmt.Sprintf("%d vulnerability hypotheses confirmed reproducibly", confirmedCount))
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusConfirmed, fmt.Sprintf("%s confirmed reproducibly", plural(confirmedCount, "vulnerability hypothesis", "vulnerability hypotheses")))
 	}
 	if inconclusiveCount > 0 {
 		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "Validation execution inconclusive")
 	}
 	return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "Validation tests disproved all hypotheses")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }

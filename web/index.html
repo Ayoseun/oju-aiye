@@ -1,444 +1,677 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VULN-HUNTER 8-BIT // Autonomous Research Platform</title>
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <style>
-    /* Retro 8-bit & CRT aesthetic */
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Vulnerability Research</title>
+<style>
+  :root {
+    color-scheme: dark light;
+    --bg: #0e0f12; --surface: #14161a; --surface-2: #1a1d22; --hover: #1d2025;
+    --border: #262a31; --border-strong: #343944;
+    --text: #e6e8eb; --muted: #9aa1ab; --subtle: #6b7280;
+    --accent: #8b90ff; --accent-bg: rgba(139,144,255,.14);
+    --red: #f2707a; --red-bg: rgba(242,112,122,.13);
+    --green: #46d695; --green-bg: rgba(70,214,149,.12);
+    --amber: #f3b95b; --amber-bg: rgba(243,185,91,.13);
+    --slate: #9aa4bd; --slate-bg: rgba(154,164,189,.13);
+    --shadow: 0 12px 40px rgba(0,0,0,.5);
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: light) {
     :root {
-      --retro-bg: #0d0f18;
-      --retro-panel: #161a29;
-      --retro-border: #3b4261;
-      --retro-accent: #ff0055;
-      --retro-cyan: #00f0ff;
-      --retro-green: #00ff66;
-      --retro-yellow: #ffdd00;
-      --retro-text: #e0e6ed;
+      --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f3f4f6; --hover: #f0f1f4;
+      --border: #e3e5e9; --border-strong: #cfd3da;
+      --text: #14161a; --muted: #5b6370; --subtle: #8a919c;
+      --accent: #4b4fd8; --accent-bg: rgba(75,79,216,.1);
+      --red: #c9323d; --red-bg: rgba(201,50,61,.09);
+      --green: #17814d; --green-bg: rgba(23,129,77,.09);
+      --amber: #a56a0c; --amber-bg: rgba(165,106,12,.1);
+      --slate: #56627f; --slate-bg: rgba(86,98,127,.1);
+      --shadow: 0 12px 40px rgba(20,22,26,.16);
     }
+  }
+  * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-    body {
-      background-color: var(--retro-bg);
-      color: var(--retro-text);
-      font-family: 'VT323', monospace;
-      font-size: 20px;
-      letter-spacing: 1px;
-      image-rendering: pixelated;
-    }
+  /* ---------- shell ---------- */
+  .app { height: 100%; display: flex; flex-direction: column; }
+  .topbar { height: 52px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; }
+  .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; }
+  .spacer { flex: 1; }
+  .health { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--border); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); flex: none; }
+  .health.ok .dot { background: var(--green); } .health.bad .dot { background: var(--red); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-weight: 500; text-decoration: none; color: var(--text); white-space: nowrap; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #0b0c10; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  @media (prefers-color-scheme: light) { .btn.primary { color: #fff; } }
+  .btn.danger { color: var(--red); } .btn.danger.armed { background: var(--red-bg); border-color: var(--red); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border-strong); color: var(--muted); background: transparent; }
+  .btn.primary kbd { border-color: rgba(0,0,0,.3); color: inherit; opacity: .75; }
 
-    .pixel-title {
-      font-family: 'Press Start 2P', monospace;
-    }
+  .banner { flex: none; padding: 10px 20px; background: var(--red-bg); color: var(--red); border-bottom: 1px solid var(--border); font-size: 13px; }
+  .banner b { font-weight: 600; } .banner .mono { color: var(--text); opacity: .85; }
+  .banner[hidden] { display: none; }
 
-    /* Pixelated borders and chunky retro buttons */
-    .pixel-box {
-      border: 4px solid #000;
-      box-shadow: 
-        inset -4px -4px 0px 0px rgba(0, 0, 0, 0.6),
-        inset 4px 4px 0px 0px rgba(255, 255, 255, 0.2),
-        4px 4px 0px 0px #000;
-    }
+  .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr); }
+  .list { border-right: 1px solid var(--border); overflow: auto; background: var(--surface); }
+  .list h2 { margin: 0; padding: 16px 16px 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--subtle); }
+  .row { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 16px; border: 0; border-left: 2px solid transparent; background: transparent; text-align: left; cursor: pointer; }
+  .row:hover { background: var(--hover); }
+  .row[aria-current="true"] { background: var(--surface-2); border-left-color: var(--accent); }
+  .row .name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .sub { font-size: 12px; color: var(--subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .main { min-width: 0; flex: 1; }
+  .detail { overflow: auto; }
+  .detail-inner { max-width: 880px; margin: 0 auto; padding: 28px 28px 80px; }
 
-    .pixel-btn {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 11px;
-      position: relative;
-      cursor: pointer;
-      user-select: none;
-      border: 3px solid #000;
-      box-shadow: 
-        inset -3px -3px 0px 0px rgba(0, 0, 0, 0.4),
-        inset 3px 3px 0px 0px rgba(255, 255, 255, 0.3),
-        3px 3px 0px 0px #000;
-      transition: all 0.05s ease;
-    }
+  /* ---------- chips ---------- */
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 550; white-space: nowrap; background: var(--slate-bg); color: var(--slate); flex: none; }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.danger { background: var(--red-bg); color: var(--red); }
+  .chip.error { background: transparent; color: var(--red); box-shadow: inset 0 0 0 1px var(--red); }
+  .chip.ok { background: var(--green-bg); color: var(--green); }
+  .chip.warn { background: var(--amber-bg); color: var(--amber); }
+  .chip.active { background: var(--accent-bg); color: var(--accent); }
+  .chip.active::before { animation: pulse 1.4s ease-in-out infinite; }
+  .chip.plain::before { display: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .chip.active::before, .stage.active .node::after { animation: none !important; } }
 
-    .pixel-btn:active {
-      transform: translate(2px, 2px);
-      box-shadow: 
-        inset -1px -1px 0px 0px rgba(0, 0, 0, 0.4),
-        inset 1px 1px 0px 0px rgba(255, 255, 255, 0.3),
-        1px 1px 0px 0px #000;
-    }
+  /* ---------- header & pipeline ---------- */
+  .head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .head .title { flex: 1; min-width: 240px; }
+  .head h1 { margin: 0 0 2px; font-size: 20px; letter-spacing: -.02em; line-height: 1.25; overflow-wrap: anywhere; }
+  .path { margin: 0 0 10px; color: var(--subtle); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; color: var(--muted); font-size: 13px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .callout { margin: 20px 0 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
+  .callout.error { border-color: var(--red); background: var(--red-bg); }
+  .callout .label { font-weight: 600; margin-bottom: 2px; }
+  .callout.error .label { color: var(--red); }
 
-    /* Scanlines effect */
-    .scanlines {
-      background: linear-gradient(
-        to bottom,
-        rgba(255,255,255,0),
-        rgba(255,255,255,0) 50%,
-        rgba(0, 0, 0, 0.3) 50%,
-        rgba(0, 0, 0, 0.3)
-      );
-      background-size: 100% 4px;
-      pointer-events: none;
-    }
+  .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); margin: 28px 0 8px; list-style: none; padding: 0; }
+  .stage { position: relative; padding-top: 22px; text-align: left; color: var(--subtle); }
+  .stage::before { content: ""; position: absolute; top: 5px; left: 14px; right: -6px; height: 2px; background: var(--border); }
+  .stage:last-child::before { display: none; }
+  .stage.done::before { background: var(--accent); }
+  .node { position: absolute; top: 0; left: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--border-strong); }
+  .stage.done .node { background: var(--accent); border-color: var(--accent); }
+  .stage.active .node { border-color: var(--accent); background: var(--bg); }
+  .stage.active .node::after { content: ""; position: absolute; inset: 1px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  .stage.failed .node { background: var(--red); border-color: var(--red); }
+  .stage.stopped .node { background: var(--slate); border-color: var(--slate); }
+  .stage.skipped { opacity: .45; }
+  .stage .s-name { font-weight: 550; color: var(--muted); font-size: 13px; }
+  .stage.done .s-name, .stage.active .s-name { color: var(--text); }
+  .stage.failed .s-name { color: var(--red); }
+  .stage .s-time { font-size: 12px; color: var(--subtle); min-height: 18px; }
 
-    .blink {
-      animation: blinker 1s step-start infinite;
-    }
-    @keyframes blinker {
-      50% { opacity: 0; }
-    }
+  /* ---------- sections & findings ---------- */
+  .section { margin-top: 32px; }
+  .section > h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .count { font-weight: 500; color: var(--subtle); letter-spacing: 0; text-transform: none; }
+  .group-label { margin: 18px 0 8px; font-size: 12.5px; color: var(--muted); }
+  .card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 10px; overflow: hidden; }
+  .card.confirmed { border-color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+  .card-head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+  .card-head:hover { background: var(--hover); }
+  .chev { width: 16px; height: 16px; flex: none; color: var(--subtle); transition: transform .12s; }
+  .card-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .card-title { flex: 1; min-width: 0; font-weight: 550; }
+  .card-title small { display: block; font-weight: 400; color: var(--subtle); font-family: var(--mono); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-body { padding: 4px 16px 18px 44px; border-top: 1px solid var(--border); }
+  .field { margin-top: 16px; }
+  .field > .k { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--subtle); margin-bottom: 4px; }
+  .field p { margin: 0; } .field ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .loc { display: inline-block; margin: 2px 6px 2px 0; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); font-family: var(--mono); font-size: 12.5px; }
+  .kv { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+  .note { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
+  .note.warn { background: var(--amber-bg); color: var(--amber); }
+  .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-weight: 500; }
+  .link:hover { text-decoration: underline; }
+  .link-row { margin-top: 10px; display: flex; gap: 16px; }
+  pre { margin: 8px 0 0; padding: 12px 14px; max-height: 320px; overflow: auto; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
 
-    /* Agent avatar pixel art silhouettes */
-    .pixel-art {
-      width: 48px;
-      height: 48px;
-      display: inline-block;
-      background-size: cover;
-    }
-  </style>
+  /* ---------- activity ---------- */
+  .disclose { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; font-weight: inherit; }
+  .log { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .log li { display: grid; grid-template-columns: 72px 120px 1fr; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .log li:last-child { border-bottom: 0; }
+  .log .t { color: var(--subtle); font-family: var(--mono); font-size: 12px; }
+  .log .who { color: var(--muted); font-weight: 550; }
+  .log .err { color: var(--red); font-family: var(--mono); font-size: 12.5px; word-break: break-word; margin-top: 2px; }
+
+  /* ---------- empty / modal / toast ---------- */
+  .empty { max-width: 460px; margin: 12vh auto 0; padding: 0 24px; text-align: center; }
+  .empty h1 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 8px; }
+  .empty p { color: var(--muted); margin: 0 0 20px; }
+  .empty ol { text-align: left; color: var(--muted); padding-left: 20px; margin: 0 0 24px; }
+  dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog form { padding: 22px; }
+  dialog h2 { margin: 0 0 4px; font-size: 17px; letter-spacing: -.01em; }
+  dialog .lede { margin: 0 0 18px; color: var(--muted); }
+  label.f { display: block; margin-bottom: 14px; font-weight: 550; }
+  label.f .hint { display: block; font-weight: 400; color: var(--subtle); font-size: 12.5px; margin-top: 4px; }
+  input[type=text] { width: 100%; height: 36px; margin-top: 6px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font: 13px var(--mono); }
+  input[type=text]::placeholder { color: var(--subtle); }
+  .check { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-weight: 450; cursor: pointer; }
+  .check input { margin-top: 3px; accent-color: var(--accent); }
+  label.f .hint .mono { white-space: nowrap; }
+  .form-error { margin: 12px 0 0; color: var(--red); font-size: 13px; min-height: 18px; }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 9px 14px; border-radius: 10px; background: var(--text); color: var(--bg); font-weight: 500; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .toast.show { opacity: 1; }
+
+  /* ---------- small screens ---------- */
+  .back { display: none; }
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; }
+    .layout[data-view="detail"] .list, .layout[data-view="list"] .detail { display: none; }
+    .back { display: inline-flex; margin-bottom: 14px; }
+    .detail-inner { padding: 18px 16px 80px; }
+    .pipeline { grid-template-columns: 1fr; gap: 4px; }
+    .stage { display: flex; align-items: baseline; gap: 10px; padding: 0 0 0 26px; min-height: 28px; }
+    .stage .s-time { min-height: 0; }
+    .stage .node { top: 5px; }
+    .stage::before { top: 17px; left: 5px; right: auto; bottom: -11px; width: 2px; height: auto; }
+    .log li { grid-template-columns: 64px 1fr; } .log .who { grid-column: 2; } .log li > :last-child { grid-column: 2; }
+    .card-body { padding-left: 16px; }
+    .topbar { padding: 0 14px; } kbd { display: none; }
+  }
+</style>
 </head>
-<body class="min-h-screen p-4 md:p-6 relative selection:bg-[#ff0055] selection:text-white">
-
-  <!-- Scanline Overlay -->
-  <div class="scanlines fixed inset-0 z-50 pointer-events-none opacity-40"></div>
-
-  <div class="max-w-6xl mx-auto space-y-6">
-
-    <!-- Top Header / Marquee -->
-    <header class="pixel-box bg-[#1a1c2e] p-4 flex flex-col md:flex-row items-center justify-between gap-4 border-b-4 border-black">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 bg-[#ff0055] pixel-box flex items-center justify-center text-black font-black text-xl">
-          👾
-        </div>
-        <div>
-          <h1 class="pixel-title text-sm md:text-base text-[#00f0ff] tracking-wider uppercase">
-            VULN-HUNTER <span class="text-[#ff0055]">v1.0</span>
-          </h1>
-          <p class="text-sm text-gray-400">AUTONOMOUS MULTI-AGENT SECURITY FORGE</p>
-        </div>
-      </div>
-
-      <!-- Live Heartbeat / Status Bar -->
-      <div class="flex items-center gap-6 text-sm">
-        <div class="flex items-center gap-2">
-          <span class="w-3 h-3 bg-[#00ff66] inline-block animate-ping rounded-none"></span>
-          <span class="text-[#00ff66] font-bold">DAEMON: READY</span>
-        </div>
-        <div class="text-[#ffdd00]">
-          COORDINATOR: <span id="job-state" class="text-white underline">IDLE</span>
-        </div>
-        <div class="text-gray-400">
-          MEM: <span class="text-cyan-300">128MB</span>
-        </div>
-      </div>
-    </header>
-
-    <!-- Main Command Console & Control Deck -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-      <!-- Left Column: The 3 Agent Specialists (RPG Party) -->
-      <div class="lg:col-span-1 space-y-4">
-        <div class="pixel-box bg-[#131722] p-4">
-          <div class="flex items-center justify-between border-b-2 border-black pb-2 mb-3">
-            <h2 class="pixel-title text-xs text-[#ffdd00] uppercase">⚡ AGENT SQUAD</h2>
-            <span class="text-xs text-gray-400">LVL.99</span>
-          </div>
-
-          <!-- Agent 1: SCOUT -->
-          <div id="card-scout" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#00f0ff] transition-all">
-            <div class="flex items-center gap-3">
-              <div class="text-3xl">🔭</div>
-              <div class="flex-1">
-                <div class="flex justify-between items-center">
-                  <span class="pixel-title text-[10px] text-[#00f0ff]">1. SCOUT</span>
-                  <span id="badge-scout" class="text-xs bg-[#00f0ff] text-black px-1.5 py-0.5 font-bold">READY</span>
-                </div>
-                <div class="text-sm text-gray-300 mt-1">Role: Candidate Discovery</div>
-                <div class="text-xs text-gray-400">Model: Qwen2.5-Coder:32B</div>
-                <!-- Mini Progress Bar -->
-                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
-                  <div id="bar-scout" class="bg-[#00f0ff] h-full w-0 transition-all duration-300"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Agent 2: INVESTIGATOR -->
-          <div id="card-investigator" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#ffdd00] transition-all">
-            <div class="flex items-center gap-3">
-              <div class="text-3xl">🧪</div>
-              <div class="flex-1">
-                <div class="flex justify-between items-center">
-                  <span class="pixel-title text-[10px] text-[#ffdd00]">2. INVESTIGATOR</span>
-                  <span id="badge-investigator" class="text-xs bg-gray-700 text-white px-1.5 py-0.5">STANDBY</span>
-                </div>
-                <div class="text-sm text-gray-300 mt-1">Role: Invariant & Hypothesis</div>
-                <div class="text-xs text-gray-400">Model: DeepSeek-Coder-V2</div>
-                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
-                  <div id="bar-investigator" class="bg-[#ffdd00] h-full w-0 transition-all duration-300"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Agent 3: REVIEWER -->
-          <div id="card-reviewer" class="pixel-box bg-[#1a1f33] p-3 mb-3 border-l-4 border-l-[#ff0055] transition-all">
-            <div class="flex items-center gap-3">
-              <div class="text-3xl">⚔️</div>
-              <div class="flex-1">
-                <div class="flex justify-between items-center">
-                  <span class="pixel-title text-[10px] text-[#ff0055]">3. REVIEWER</span>
-                  <span id="badge-reviewer" class="text-xs bg-gray-700 text-white px-1.5 py-0.5">STANDBY</span>
-                </div>
-                <div class="text-sm text-gray-300 mt-1">Role: Adversarial Falsifier</div>
-                <div class="text-xs text-gray-400">Model: Llama-3.3-70B</div>
-                <div class="w-full bg-black h-2.5 mt-2 pixel-box overflow-hidden">
-                  <div id="bar-reviewer" class="bg-[#ff0055] h-full w-0 transition-all duration-300"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Sandbox Runner Info -->
-          <div class="pixel-box bg-black/60 p-3 text-xs space-y-1 text-gray-300">
-            <div class="text-[#00ff66] font-bold">🛡️ DETERMINISTIC SANDBOX</div>
-            <div>Isolation: <span class="text-white">Disposable Container</span></div>
-            <div>Network: <span class="text-red-400 font-bold">OFFLINE (BLOCKED)</span></div>
-            <div>Time Limit: <span class="text-yellow-300">60s Timeout</span></div>
-          </div>
-        </div>
-
-        <!-- Research Actions Panel -->
-        <div class="pixel-box bg-[#161a29] p-4 space-y-3">
-          <div class="pixel-title text-xs text-[#00f0ff] uppercase">🎯 TARGET SCOPE</div>
-          <div>
-            <label class="text-xs text-gray-400 block mb-1">TARGET REPOSITORY</label>
-            <input id="target-repo" type="text" value="audit://defi-lending-vault" class="w-full bg-black text-[#00ff66] border-2 border-black p-2 font-mono text-sm focus:outline-none focus:border-[#00f0ff]">
-          </div>
-          <div>
-            <label class="text-xs text-gray-400 block mb-1">REVISION / COMMIT</label>
-            <input id="target-rev" type="text" value="v1.1.0-release" class="w-full bg-black text-yellow-300 border-2 border-black p-2 font-mono text-sm focus:outline-none focus:border-[#ffdd00]">
-          </div>
-          <button id="btn-start" onclick="startWorkflow()" class="w-full pixel-btn bg-[#00ff66] text-black py-3 text-center font-bold tracking-wider hover:bg-[#33ff88]">
-            ▶ START RESEARCH MISSION
-          </button>
-          <button id="btn-reset" onclick="resetWorkflow()" class="w-full pixel-btn bg-gray-800 text-gray-300 py-2 text-center text-[10px] hover:bg-gray-700">
-            ↺ RESET SYSTEM
-          </button>
-        </div>
-      </div>
-
-      <!-- Right Column: Mission Console & Evidence Registry (2 cols) -->
-      <div class="lg:col-span-2 space-y-4">
-
-        <!-- Retro Terminal Logs -->
-        <div class="pixel-box bg-black p-4 text-[#00ff66] font-mono relative">
-          <div class="flex items-center justify-between border-b-2 border-[#1f293d] pb-2 mb-3">
-            <div class="flex items-center gap-2">
-              <span class="w-2.5 h-2.5 bg-red-500 inline-block"></span>
-              <span class="w-2.5 h-2.5 bg-yellow-500 inline-block"></span>
-              <span class="w-2.5 h-2.5 bg-green-500 inline-block"></span>
-              <span class="pixel-title text-[10px] text-gray-300 ml-2">COORDINATOR TERMINAL // TTY1</span>
-            </div>
-            <span class="text-xs text-gray-500">POSTGRES: CONNECTED</span>
-          </div>
-
-          <div id="terminal-body" class="h-64 overflow-y-auto space-y-1.5 text-sm pr-2 scrollbar-thin scrollbar-thumb-gray-800">
-            <div class="text-gray-500">[00:00:01] System boot. Engine initialized on go1.27.1.</div>
-            <div class="text-gray-500">[00:00:02] Model adapters configured: Scout, Investigator, Reviewer.</div>
-            <div class="text-gray-500">[00:00:03] Isolated sandbox worker ready with network access DISABLED.</div>
-            <div class="text-yellow-400">[00:00:04] Awaiting research mission submission... <span class="blink">█</span></div>
-          </div>
-        </div>
-
-        <!-- Hypotheses & Validation Trophy Room -->
-        <div class="pixel-box bg-[#161a29] p-4">
-          <div class="flex items-center justify-between border-b-2 border-black pb-2 mb-3">
-            <h2 class="pixel-title text-xs text-[#00f0ff] uppercase">🏆 CONFIRMED LOOT // VULNERABILITY DOSSIER</h2>
-            <div class="flex gap-2 text-xs">
-              <span class="text-[#00ff66]">CONFIRMED: <strong id="count-confirmed">0</strong></span> |
-              <span class="text-red-400">REFUTED: <strong id="count-refuted">0</strong></span>
-            </div>
-          </div>
-
-          <div id="findings-container" class="space-y-3">
-            <!-- Placeholder empty message -->
-            <div id="empty-loot" class="pixel-box bg-[#121520] p-6 text-center text-gray-500 text-sm">
-              NO VULNERABILITY CONFIRMED YET.<br>
-              SUBMIT A TARGET TO COMMENCE RECONNAISSANCE.
-            </div>
-          </div>
-        </div>
-
-        <!-- Evidence & Artifact Ledger -->
-        <div class="pixel-box bg-[#121520] p-3 text-xs text-gray-400 flex flex-wrap items-center justify-between gap-3">
-          <div>EVIDENCE HASH: <span id="art-hash" class="text-cyan-400 font-mono">e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</span></div>
-          <div class="text-[#ffdd00]">EVALUATION: <span id="eval-status">DETERMINISTIC_SANDBOX</span></div>
-        </div>
-
-      </div>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg></span>
+      Vulnerability Research
     </div>
-
-    <!-- Retro Footer -->
-    <footer class="text-center text-xs text-gray-500 pixel-title pt-4">
-      [PRESS START TO AUDIT] &bull; GROUNDED IN CODE FACTS &bull; ZERO FABRICATION POLICY
-    </footer>
-
+    <span class="spacer"></span>
+    <span id="health" class="health" role="status"><span class="dot"></span><span id="health-text">Checking…</span></span>
+    <button id="new-btn" class="btn primary" type="button">New audit <kbd>N</kbd></button>
+  </header>
+  <div id="banner" class="banner" hidden role="alert"></div>
+  <div id="layout" class="layout" data-view="list">
+    <aside class="list" aria-label="Audits"><h2>Audits</h2><div id="jobs"></div></aside>
+    <main class="detail" id="detail" tabindex="-1"></main>
   </div>
+</div>
 
-  <!-- Interactive JavaScript Engine -->
-  <script>
-    let step = 0;
-    let timer = null;
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <form id="new-form" method="dialog" novalidate>
+    <h2 id="dlg-title">New audit</h2>
+    <p class="lede">The server copies this code into a temporary sandbox to test each finding. Your repository is never modified.</p>
+    <label class="f">Repository path
+      <input id="f-repo" type="text" autocomplete="off" spellcheck="false" placeholder="/targets/my-repo" required>
+      <span class="hint">A directory as the server sees it. With Docker, put repositories under <span class="mono">./targets</span> and use <span class="mono">/targets/&lt;name&gt;</span>.</span>
+    </label>
+    <label class="f">Revision <span class="muted" style="font-weight:400">(optional)</span>
+      <input id="f-rev" type="text" autocomplete="off" spellcheck="false" placeholder="HEAD">
+      <span class="hint">Recorded on the report. The directory is audited as it is on disk; no checkout happens.</span>
+    </label>
+    <label class="check"><input id="f-auth" type="checkbox"><span>I’m authorized to audit this code, and I understand test commands written by the model will run on this machine.</span></label>
+    <p id="form-error" class="form-error" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="cancel-dlg">Cancel</button>
+      <button type="submit" class="btn primary" id="submit-dlg" disabled>Start audit</button>
+    </div>
+  </form>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    function log(msg, colorClass = "text-gray-300") {
-      const term = document.getElementById("terminal-body");
-      const time = new Date().toTimeString().split(" ")[0];
-      const line = document.createElement("div");
-      line.className = colorClass;
-      line.innerHTML = `[${time}] ${msg}`;
-      term.appendChild(line);
-      term.scrollTop = term.scrollHeight;
+<script>
+"use strict";
+/* Everything below renders untrusted text (model output, repo paths, test logs).
+   Nodes are built with createElement/textContent only; nothing is ever parsed as HTML. */
+
+const TERMINAL = new Set(["confirmed", "refuted", "inconclusive", "failed", "cancelled"]);
+const JOB_STATUS = {
+  queued: ["Queued", "plain"], preparing_target: ["Preparing", "active"], inventorying: ["Inventorying", "active"],
+  discovering: ["Scouting", "active"], analyzing: ["Investigating", "active"], reviewing: ["Reviewing", "active"],
+  needs_more_evidence: ["Needs evidence", "warn"], ready_for_validation: ["Ready to validate", "active"],
+  validating: ["Validating", "active"], confirmed: ["Confirmed", "danger"], refuted: ["Not reproduced", "ok"],
+  inconclusive: ["Inconclusive", "warn"], failed: ["Failed", "error"], cancelled: ["Cancelled", "plain"],
+};
+const HYP_STATUS = {
+  confirmed: ["Confirmed", "danger"], refuted: ["Not reproduced", "ok"], inconclusive: ["Inconclusive", "warn"],
+  needs_more_evidence: ["Needs evidence", "warn"], ready_for_validation: ["Queued", "active"],
+  validating: ["Validating", "active"], proposed: ["Under review", "plain"], under_review: ["Under review", "plain"],
+};
+const OUTCOME = { reproduced: ["Reproduced", "danger"], refuted: ["Not reproduced", "ok"], inconclusive: ["Inconclusive", "warn"], setup_failed: ["Setup failed", "warn"] };
+const DECISION = { accept_for_validation: ["Accepted for validation", "ok"], request_more_evidence: ["Wants more evidence", "warn"], reject_hypothesis: ["Rejected", "plain"] };
+const STAGES = [
+  { name: "Prepare", states: ["preparing_target", "inventorying"] },
+  { name: "Scout", states: ["discovering"] },
+  { name: "Investigate", states: ["analyzing"] },
+  { name: "Review", states: ["reviewing", "needs_more_evidence", "ready_for_validation"] },
+  { name: "Validate", states: ["validating"] },
+];
+
+const $ = (s, r = document) => r.querySelector(s);
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function chevron() {
+  const s = document.createElementNS(SVG_NS, "svg");
+  s.setAttribute("viewBox", "0 0 16 16"); s.setAttribute("class", "chev"); s.setAttribute("aria-hidden", "true");
+  const p = document.createElementNS(SVG_NS, "path");
+  p.setAttribute("d", "M6 3.5 10.5 8 6 12.5"); p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor");
+  p.setAttribute("stroke-width", "1.8"); p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+  s.append(p); return s;
+}
+function chip(map, key, fallback) {
+  const [label, tone] = map[key] || [fallback || key || "Unknown", "plain"];
+  return h("span", { class: "chip " + tone }, label);
+}
+
+/* ---------- formatting ---------- */
+const base = (p) => { const t = String(p || "").replace(/\/+$/, ""); return t.split("/").pop() || t || "(unknown)"; };
+function dur(ms) {
+  if (ms == null || isNaN(ms) || ms < 0) return "";
+  if (ms < 1000) return "<1s";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  return m < 60 ? m + "m " + (s % 60) + "s" : Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+function ago(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return "";
+  if (ms < 10000) return "just now";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + "s ago";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m ago";
+  const hr = Math.round(m / 60);
+  return hr < 24 ? hr + "h ago" : Math.round(hr / 24) + "d ago";
+}
+const clock = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toTimeString().slice(0, 8); };
+const loc = (l) => l.path + (l.symbol ? " · " + l.symbol : "") + ":" + l.line_start + (l.line_end && l.line_end !== l.line_start ? "–" + l.line_end : "");
+
+/* ---------- state ---------- */
+const S = {
+  jobs: [], selected: null, detail: null, health: null,
+  expanded: new Set(), collapsed: new Set(), shown: new Set(), outputs: new Map(), activityOpen: false, activityTouched: false,
+  sigs: { jobs: "", detail: "", health: "" }, armedCancel: false, offline: false,
+};
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  let body = text;
+  try { body = JSON.parse(text); } catch (_) { /* plain text */ }
+  if (!res.ok) throw Object.assign(new Error((body && body.error) || String(text).trim() || res.statusText), { status: res.status });
+  return body;
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+/* ---------- data loading ---------- */
+async function loadHealth() {
+  let data = null;
+  try { data = await (await fetch("/health/ready")).json(); S.offline = false; } catch (_) { S.offline = true; }
+  const sig = JSON.stringify(data) + S.offline;
+  if (sig === S.sigs.health) return;
+  S.sigs.health = sig; S.health = data; renderHealth();
+}
+async function loadJobs() {
+  try {
+    const jobs = await api("/api/v1/jobs");
+    S.offline = false;
+    jobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const sig = JSON.stringify(jobs.map((j) => [j.id, j.status, j.updated_at]));
+    S.jobs = jobs;
+    if (sig !== S.sigs.jobs) { S.sigs.jobs = sig; renderJobs(); if (!S.selected) renderDetail(); }
+    if (!S.selected && jobs.length && !location.hash && window.matchMedia("(min-width: 821px)").matches) select(jobs[0].id, true);
+  } catch (e) { S.offline = true; }
+  renderHealth();
+}
+async function loadDetail() {
+  if (!S.selected) return;
+  const id = S.selected;
+  try {
+    const [job, events, report] = await Promise.all([
+      api("/api/v1/jobs/" + id), api("/api/v1/jobs/" + id + "/events"), api("/api/v1/jobs/" + id + "/report"),
+    ]);
+    if (id !== S.selected) return;
+    S.offline = false;
+    S.detail = { job, events, report };
+    const sig = JSON.stringify(S.detail);
+    if (sig !== S.sigs.detail) { S.sigs.detail = sig; renderDetail(); }
+  } catch (e) {
+    if (id !== S.selected) return;
+    if (e.status === 404) { S.detail = null; S.sigs.detail = ""; renderDetail("This audit no longer exists. The server keeps jobs in memory, so a restart clears them."); }
+    else S.offline = true;
+  }
+  renderHealth();
+}
+function select(id, replace) {
+  S.selected = id; S.detail = null; S.sigs.detail = ""; S.armedCancel = false; S.activityOpen = false; S.activityTouched = false;
+  const target = "#/jobs/" + id;
+  if (location.hash !== target) { if (replace) history.replaceState(null, "", target); else location.hash = target; }
+  $("#layout").dataset.view = "detail";
+  renderJobs(); renderDetail(); loadDetail();
+}
+function route() {
+  const m = location.hash.match(/^#\/jobs\/([0-9a-f-]{36})$/i);
+  if (m) { if (m[1] !== S.selected) select(m[1], true); else $("#layout").dataset.view = "detail"; }
+  else { S.selected = null; S.detail = null; S.sigs.detail = ""; $("#layout").dataset.view = "list"; renderJobs(); renderDetail(); }
+}
+
+/* ---------- rendering: chrome ---------- */
+function renderHealth() {
+  const el = $("#health"), txt = $("#health-text"), banner = $("#banner");
+  let cls = "health", text = "Checking…", nodes = null;
+  if (S.offline) {
+    cls += " bad"; text = "Server unreachable";
+    nodes = [h("b", {}, "Can’t reach the API. "), "Retrying every few seconds."];
+  } else if (S.health) {
+    const bad = Object.entries(S.health.components || {}).filter(([, v]) => v !== "ok");
+    if (!bad.length) { cls += " ok"; text = "Models ready"; }
+    else {
+      cls += " bad"; text = "Models unreachable";
+      nodes = [h("b", {}, "Model server unreachable. "), "New audits will fail until it’s back.",
+        bad.map(([k, v]) => h("div", { class: "mono" }, k.replace(/^model:/, "") + ": " + v))];
     }
+  }
+  el.className = cls; txt.textContent = text;
+  banner.hidden = !nodes; banner.replaceChildren(); if (nodes) banner.append(...nodes.flat(Infinity).map((n) => (n instanceof Node ? n : document.createTextNode(n))));
+}
+function renderJobs() {
+  const box = $("#jobs");
+  if (!S.jobs.length) { box.replaceChildren(h("p", { class: "muted", style: "padding:8px 16px" }, "No audits yet.")); return; }
+  box.replaceChildren(...S.jobs.map((j) => h("button", {
+    class: "row", type: "button", "aria-current": j.id === S.selected ? "true" : "false", onclick: () => select(j.id),
+  },
+    h("span", { class: "main" }, h("div", { class: "name" }, base(j.repository_ref)),
+      h("div", { class: "sub" }, h("span", { "data-ago": j.created_at }, ago(j.created_at)), " · " + j.repository_ref)),
+    chip(JOB_STATUS, j.status))));
+}
 
-    function setBadge(id, text, colorBg, colorText = "text-black") {
-      const badge = document.getElementById(id);
-      badge.className = `text-xs ${colorBg} ${colorText} px-1.5 py-0.5 font-bold uppercase`;
-      badge.innerText = text;
-    }
+/* ---------- rendering: detail ---------- */
+function stageStates(job, transitions) {
+  const trs = [...transitions].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const terminal = TERMINAL.has(job.status);
+  const end = terminal ? new Date(job.finished_at || job.updated_at).getTime() : Date.now();
+  const out = STAGES.map((st) => {
+    const idx = trs.findIndex((t) => st.states.includes(t.to_state));
+    if (idx < 0) return { ...st, state: terminal ? "skipped" : "pending" };
+    let last = idx;
+    while (last + 1 < trs.length && st.states.includes(trs[last + 1].to_state)) last++;
+    const entered = new Date(trs[idx].timestamp).getTime();
+    const left = trs[last + 1] ? new Date(trs[last + 1].timestamp).getTime() : null;
+    const current = st.states.includes(job.status);
+    return { ...st, entered, state: current ? "active" : "done", ms: (left ?? end) - entered };
+  });
+  if (job.status === "failed" || job.status === "cancelled") {
+    const lastEntered = [...out].reverse().find((s) => s.entered);
+    if (lastEntered) lastEntered.state = job.status === "failed" ? "failed" : "stopped";
+  }
+  return out;
+}
+function failureHint(msg) {
+  if (/connection refused|no such host|health check|dial tcp|inference api|http request failed/i.test(msg || ""))
+    return "This usually means the model server isn’t running or the base URL is wrong. Check the model status at the top of the page.";
+  return null;
+}
+function backBtn() { return h("button", { class: "btn back", type: "button", onclick: () => { location.hash = ""; } }, "← All audits"); }
 
-    function setBar(id, percent) {
-      document.getElementById(id).style.width = percent + "%";
-    }
+function renderDetail(notice) {
+  const box = $("#detail"); const scroll = box.scrollTop;
+  if (!S.selected) {
+    box.replaceChildren(S.jobs.length ? h("div", { class: "empty" }, h("p", {}, "Select an audit to see its progress and findings.")) : onboarding());
+    return;
+  }
+  if (!S.detail) { box.replaceChildren(h("div", { class: "detail-inner" }, backBtn(), h("p", { class: "muted" }, notice || "Loading…"))); return; }
 
-    function setJobState(state, colorClass = "text-white") {
-      const el = document.getElementById("job-state");
-      el.className = `${colorClass} font-bold underline uppercase`;
-      el.innerText = state;
-    }
+  const { job, events, report } = S.detail;
+  const active = !TERMINAL.has(job.status);
+  const started = new Date(job.created_at).getTime();
+  const elapsed = (active ? Date.now() : new Date(job.finished_at || job.updated_at).getTime()) - started;
+  const inner = h("div", { class: "detail-inner" });
+  inner.append(backBtn());
 
-    function resetWorkflow() {
-      if (timer) clearInterval(timer);
-      step = 0;
-      setJobState("IDLE", "text-white");
-      setBadge("badge-scout", "READY", "bg-[#00f0ff]", "text-black");
-      setBadge("badge-investigator", "STANDBY", "bg-gray-700", "text-white");
-      setBadge("badge-reviewer", "STANDBY", "bg-gray-700", "text-white");
-      setBar("bar-scout", 0);
-      setBar("bar-investigator", 0);
-      setBar("bar-reviewer", 0);
-      document.getElementById("count-confirmed").innerText = "0";
-      document.getElementById("count-refuted").innerText = "0";
-      document.getElementById("findings-container").innerHTML = `
-        <div id="empty-loot" class="pixel-box bg-[#121520] p-6 text-center text-gray-500 text-sm">
-          NO VULNERABILITY CONFIRMED YET.<br>
-          SUBMIT A TARGET TO COMMENCE RECONNAISSANCE.
-        </div>
-      `;
-      log("System reset to standby.", "text-gray-400");
-    }
+  const cancel = active ? h("button", {
+    class: "btn danger" + (S.armedCancel ? " armed" : ""), type: "button",
+    onclick: async () => {
+      if (!S.armedCancel) { S.armedCancel = true; renderDetail(); setTimeout(() => { if (S.armedCancel) { S.armedCancel = false; renderDetail(); } }, 3500); return; }
+      S.armedCancel = false;
+      try { await api("/api/v1/jobs/" + job.id + "/cancel", { method: "POST" }); toast("Audit cancelled"); } catch (e) { toast("Couldn’t cancel: " + e.message); }
+      loadDetail(); loadJobs();
+    },
+  }, S.armedCancel ? "Click again to cancel" : "Cancel audit") : null;
 
-    function startWorkflow() {
-      resetWorkflow();
-      const repo = document.getElementById("target-repo").value;
-      const rev = document.getElementById("target-rev").value;
+  inner.append(h("div", { class: "head" },
+    h("div", { class: "title" },
+      h("h1", {}, base(job.repository_ref)),
+      h("div", { class: "path" }, job.repository_ref),
+      h("div", { class: "meta" },
+        chip(JOB_STATUS, job.status),
+        h("span", {}, "Started ", h("span", { "data-ago": job.created_at }, ago(job.created_at))),
+        active ? h("span", {}, "Running ", h("span", { "data-since": started }, dur(elapsed))) : h("span", {}, "Took " + dur(elapsed)),
+        job.repository_revision ? h("span", { class: "mono" }, "rev " + job.repository_revision) : null)),
+    h("div", { class: "actions" }, cancel,
+      h("a", { class: "btn", href: "/api/v1/jobs/" + job.id + "/report?format=markdown", download: "report-" + job.id.slice(0, 8) + ".md" }, "Export report"),
+      h("button", { class: "btn", type: "button", onclick: () => (navigator.clipboard ? navigator.clipboard.writeText(job.id).then(() => toast("Job ID copied"), () => toast(job.id)) : toast(job.id)) }, "Copy ID"))));
 
-      log(`▶ MISSION STARTED: Target ${repo} @ ${rev}`, "text-[#00f0ff] font-bold");
-      setJobState("PREPARING_TARGET", "text-yellow-300");
+  if (job.status === "failed") {
+    const hint = failureHint(job.error_summary);
+    inner.append(h("div", { class: "callout error" }, h("div", { class: "label" }, "The audit failed"),
+      h("div", { class: "mono" }, job.error_summary || "No error was recorded."),
+      hint ? h("div", { class: "muted", style: "margin-top:6px" }, hint) : null));
+  }
 
-      const timeline = [
-        // 1. Inventory & Scout
-        {
-          delay: 800,
-          action: () => {
-            setJobState("DISCOVERING", "text-[#00f0ff]");
-            setBadge("badge-scout", "HUNTING", "bg-[#00f0ff]", "text-black animate-pulse");
-            setBar("bar-scout", 50);
-            log("Scout examining source trees, symbols, and trust boundaries...", "text-[#00f0ff]");
-          }
-        },
-        {
-          delay: 2000,
-          action: () => {
-            setBar("bar-scout", 100);
-            setBadge("badge-scout", "LEAD FOUND", "bg-[#00ff66]", "text-black");
-            log("🎯 Scout surfaced candidate: `contracts/Vault.sol:45` (CWE-841: Reentrancy)", "text-[#00ff66]");
-          }
-        },
-        // 2. Investigator
-        {
-          delay: 3200,
-          action: () => {
-            setJobState("ANALYZING", "text-[#ffdd00]");
-            setBadge("badge-investigator", "ANALYZING", "bg-[#ffdd00]", "text-black animate-pulse");
-            setBar("bar-investigator", 60);
-            log("Investigator tracing input dataflow & state transition invariants...", "text-[#ffdd00]");
-          }
-        },
-        {
-          delay: 4800,
-          action: () => {
-            setBar("bar-investigator", 100);
-            setBadge("badge-investigator", "HYPOTHESIS READY", "bg-[#00ff66]", "text-black");
-            log("📜 Formulated Hypothesis: State balances decremented AFTER external token call", "text-[#ffdd00]");
-          }
-        },
-        // 3. Reviewer
-        {
-          delay: 6000,
-          action: () => {
-            setJobState("REVIEWING", "text-[#ff0055]");
-            setBadge("badge-reviewer", "ATTACKING", "bg-[#ff0055]", "text-white animate-pulse");
-            setBar("bar-reviewer", 50);
-            log("Reviewer checking for reentrancy locks, compiler guards, or unreachable paths...", "text-[#ff0055]");
-          }
-        },
-        {
-          delay: 7500,
-          action: () => {
-            setBar("bar-reviewer", 100);
-            setBadge("badge-reviewer", "ACCEPTED", "bg-[#00ff66]", "text-black");
-            log("⚔️ Reviewer decision: ACCEPT_FOR_VALIDATION! No lock found. Test approved.", "text-[#00ff66] font-bold");
-            setJobState("READY_FOR_VALIDATION", "text-yellow-300");
-          }
-        },
-        // 4. Sandbox Validation
-        {
-          delay: 8800,
-          action: () => {
-            setJobState("VALIDATING", "text-purple-400");
-            log("🛡️ Spawning isolated disposable sandbox (`/tmp/val-sandbox-8a9d`)...", "text-purple-400");
-            log("🔒 Enforcing network deny: GOPROXY=off CARGO_NET_OFFLINE=true", "text-gray-400");
-            log("⚡ Running reproduction plan: `forge test --mt testReentrantDrain`...", "text-yellow-300");
-          }
-        },
-        {
-          delay: 10500,
-          action: () => {
-            setJobState("CONFIRMED", "text-[#00ff66]");
-            log("💥 SANDBOX EXIT CODE: 1 (Invariant violated: balance < 0)", "text-red-400 font-bold");
-            log("🏆 VULNERABILITY REPRODUCED CONFIRMED! Artifact saved.", "text-[#00ff66] font-bold");
-            document.getElementById("count-confirmed").innerText = "1";
-            document.getElementById("art-hash").innerText = "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069";
+  const stages = stageStates(job, events.transitions || []);
+  inner.append(h("ol", { class: "pipeline", "aria-label": "Pipeline progress" }, stages.map((s) =>
+    h("li", { class: "stage " + s.state },
+      h("span", { class: "node", "aria-hidden": "true" }),
+      h("div", { class: "s-name" }, s.name, h("span", { class: "sr" }, " — " + s.state)),
+      h("div", { class: "s-time" }, s.state === "pending" ? "" : s.state === "skipped" ? "skipped"
+        : s.state === "active" ? h("span", { "data-since": s.entered }, dur(s.ms)) : dur(s.ms))))));
 
-            // Add confirmed loot card
-            document.getElementById("findings-container").innerHTML = `
-              <div class="pixel-box bg-[#1b2233] p-4 border-l-4 border-l-[#00ff66] space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="pixel-title text-xs text-[#00ff66]">CRITICAL // CWE-841 REENTRANCY</span>
-                  <span class="text-xs bg-[#00ff66] text-black px-2 py-0.5 font-bold">REPRODUCED</span>
-                </div>
-                <div class="text-sm font-bold text-white">Cross-Function Reentrancy During Vault Withdrawal</div>
-                <div class="text-xs text-gray-300">Location: <span class="text-yellow-300 font-mono">contracts/Vault.sol:45-62 (withdraw)</span></div>
-                <div class="text-xs text-gray-400">Security Invariant: <span class="text-gray-200">Vault total assets must match user liabilities</span></div>
-                <div class="pixel-box bg-black/80 p-2 text-xs font-mono text-[#00ff66] mt-2">
-                  [REPRODUCTION LOG] AssertionFailed: Vault drained by 10,000 ETH (ExitCode: 1)
-                </div>
-              </div>
-            `;
-          }
-        }
-      ];
+  const groups = [
+    ["Confirmed", report.confirmed_findings || []],
+    ["Needs attention", report.inconclusive_findings || []],
+    ["Not reproduced", report.refuted_findings || []],
+  ];
+  const total = groups.reduce((n, g) => n + g[1].length, 0);
+  const findings = h("section", { class: "section" }, h("h2", {}, "Findings", total ? h("span", { class: "count" }, String(total)) : null));
+  if (!total) {
+    findings.append(h("p", { class: "muted" }, active ? "Nothing yet. Findings appear here as the agents produce them."
+      : job.status === "failed" ? "The audit failed before any finding was produced." : "No findings were produced."));
+  }
+  for (const [label, list] of groups) {
+    if (!list.length) continue;
+    if (total > list.length) findings.append(h("div", { class: "group-label" }, label + " · " + list.length));
+    list.forEach((f) => findings.append(findingCard(f, job.status)));
+  }
+  inner.append(findings);
 
-      timeline.forEach(t => setTimeout(t.action, t.delay));
-    }
-  </script>
+  const rows = activityRows(events);
+  const activityOpen = S.activityTouched ? S.activityOpen : job.status === "failed";
+  const act = h("section", { class: "section" },
+    h("h2", {}, h("button", { class: "disclose", type: "button", "aria-expanded": String(activityOpen), onclick: () => { S.activityOpen = !activityOpen; S.activityTouched = true; renderDetail(); } },
+      (activityOpen ? "▾ " : "▸ ") + "Activity"), h("span", { class: "count" }, String(rows.length))));
+  if (activityOpen) act.append(h("ul", { class: "log" }, rows.map((r) =>
+    h("li", {}, h("span", { class: "t" }, clock(r.at)), h("span", { class: "who" }, r.who),
+      h("span", {}, r.text, r.error ? h("div", { class: "err" }, r.error) : null)))));
+  inner.append(act);
+
+  box.replaceChildren(inner);
+  box.scrollTop = scroll;
+}
+
+function activityRows(events) {
+  const rows = [];
+  for (const t of events.transitions || []) {
+    const label = (JOB_STATUS[t.to_state] || [t.to_state])[0];
+    rows.push({ kind: 1, at: t.timestamp, who: t.actor || "system", text: label + (t.reason ? " — " + t.reason : "") });
+  }
+  for (const t of events.tasks || []) {
+    const ms = t.started_at && t.finished_at ? new Date(t.finished_at) - new Date(t.started_at) : null;
+    rows.push({ kind: 0, at: t.finished_at || t.started_at, who: t.role, text: (t.model_id || "model") + " · " + t.status + (ms != null ? " · " + dur(ms) : ""), error: t.error_summary });
+  }
+  return rows.filter((r) => r.at).sort((a, b) => (new Date(a.at) - new Date(b.at)) || (a.kind - b.kind));
+}
+
+function findingCard(f, jobStatus) {
+  const id = f.hypothesis_id;
+  const open = S.expanded.has(id) || (f.status === "confirmed" && !S.collapsed.has(id));
+  const first = (f.affected_locations || [])[0];
+  const card = h("div", { class: "card " + f.status });
+  card.append(h("button", {
+    class: "card-head", type: "button", "aria-expanded": String(open),
+    onclick: () => { if (open) { S.expanded.delete(id); S.collapsed.add(id); } else { S.expanded.add(id); S.collapsed.delete(id); } renderDetail(); },
+  }, chevron(),
+    h("span", { class: "card-title" }, f.title, first ? h("small", {}, loc(first)) : null),
+    chip(HYP_STATUS, f.status === "ready_for_validation" && jobStatus === "validating" ? "validating" : f.status)));
+  if (!open) return card;
+
+  const body = h("div", { class: "card-body" });
+  const field = (k, ...content) => h("div", { class: "field" }, h("div", { class: "k" }, k), ...content);
+  const w = f.weakness || {};
+  if (w.cwe || w.category) body.append(field("Weakness", h("p", {}, [w.cwe, w.category].filter(Boolean).join(" · "))));
+  if (f.security_invariant) body.append(field("Invariant that should hold", h("p", {}, f.security_invariant)));
+  if (f.impact) body.append(field("Impact", h("p", {}, f.impact)));
+  if ((f.affected_locations || []).length) body.append(field("Where", f.affected_locations.map((l) => h("span", { class: "loc" }, loc(l)))));
+
+  const reviews = f.reviews || [];
+  const rev = reviews[reviews.length - 1];
+  if (rev) {
+    const counters = (rev.counterarguments || []).filter(Boolean);
+    body.append(field("Reviewer",
+      h("div", { class: "kv" }, chip(DECISION, rev.decision), rev.reviewer_model ? h("span", { class: "mono" }, rev.reviewer_model) : null),
+      rev.rationale ? h("p", {}, rev.rationale) : null,
+      counters.length ? h("ul", {}, counters.map((c) => h("li", {}, c))) : null));
+  }
+
+  const vals = f.validations || [];
+  if (vals.length) {
+    const v = vals[vals.length - 1];
+    const advisory = /ADVISORY ONLY/i.test(v.notes || "");
+    const parts = String(v.notes || "").split(" Isolation: ");
+    const key = "v:" + v.validation_id;
+    const plan = (f.validation_plan || [])[0];
+    const vf = field("Validation",
+      h("div", { class: "kv" }, chip(OUTCOME, v.outcome), h("span", { class: "mono" }, "exit " + v.exit_code)),
+      parts[0] ? h("p", {}, parts[0]) : null);
+    if (parts[1]) vf.append(h("div", { class: "note" + (advisory ? " warn" : "") }, h("b", {}, "Isolation: "), parts[1]));
+    if (v.outcome === "reproduced") vf.append(h("div", { class: "note" }, "“Reproduced” means the test command exited with an error. Read the output before trusting it."));
+    vf.append(h("div", { class: "link-row" },
+      h("button", { class: "link", type: "button", onclick: () => toggleShown(key + ":out", v) }, S.shown.has(key + ":out") ? "Hide output" : "Show output"),
+      plan ? h("button", { class: "link", type: "button", onclick: () => toggleShown(key + ":cmd", v) }, S.shown.has(key + ":cmd") ? "Hide command" : "Show command") : null));
+    if (plan && S.shown.has(key + ":cmd")) vf.append(h("pre", {}, plan));
+    if (S.shown.has(key + ":out")) { const o = S.outputs.get(key); vf.append(o === undefined ? h("pre", {}, "Loading…") : o); }
+    body.append(vf);
+  } else if (f.status === "validating" || f.status === "ready_for_validation") {
+    body.append(field("Validation", h("p", { class: "muted" }, "Waiting for the reproduction test to run…")));
+  }
+  card.append(body);
+  return card;
+}
+
+async function toggleShown(key, v) {
+  if (S.shown.has(key)) S.shown.delete(key); else S.shown.add(key);
+  renderDetail();
+  const okey = key.replace(/:(out|cmd)$/, "");
+  if (key.endsWith(":out") && S.shown.has(key) && !S.outputs.has(okey)) {
+    S.outputs.set(okey, undefined);
+    const part = async (label, ref) => {
+      if (!ref) return label + "\n(empty)";
+      if (!ref.startsWith("artifact://")) return label + "\n" + ref;
+      try { return label + "\n" + String(await api("/api/v1/artifacts/" + ref.slice(11))).trimEnd(); }
+      catch (e) { return label + "\n(unavailable: " + e.message + ")"; }
+    };
+    const [out, err] = await Promise.all([part("stdout", v.stdout_artifact), part("stderr", v.stderr_artifact)]);
+    S.outputs.set(okey, h("pre", {}, out + "\n\n" + err));
+    renderDetail();
+  }
+}
+
+function onboarding() {
+  return h("div", { class: "empty" }, h("h1", {}, "Run your first audit"),
+    h("p", {}, "Three agents look for vulnerabilities in code you’re authorized to test, then each claim is checked by actually running a reproduction."),
+    h("ol", {}, h("li", {}, "Point it at a directory the server can read."),
+      h("li", {}, "Watch Scout, Investigator and Reviewer work through it."),
+      h("li", {}, "Read each finding with the evidence behind it.")),
+    h("button", { class: "btn primary", type: "button", onclick: openDialog }, "New audit"));
+}
+
+/* ---------- new-audit dialog ---------- */
+const dlg = $("#dlg"), form = $("#new-form");
+function openDialog() { form.reset(); $("#form-error").textContent = ""; $("#submit-dlg").disabled = true; dlg.showModal(); $("#f-repo").focus(); }
+$("#new-btn").addEventListener("click", openDialog);
+$("#cancel-dlg").addEventListener("click", () => dlg.close());
+const syncSubmit = () => { $("#submit-dlg").disabled = !($("#f-auth").checked && $("#f-repo").value.trim()); };
+$("#f-auth").addEventListener("change", syncSubmit); $("#f-repo").addEventListener("input", syncSubmit);
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#submit-dlg"); btn.disabled = true; $("#form-error").textContent = "";
+  try {
+    const job = await api("/api/v1/jobs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repository_ref: $("#f-repo").value.trim(), repository_revision: $("#f-rev").value.trim() || "HEAD", authorization_scope: { authorized: true } }),
+    });
+    dlg.close(); await loadJobs(); select(job.id);
+  } catch (err) { $("#form-error").textContent = err.message; syncSubmit(); }
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && dlg.open && !$("#submit-dlg").disabled) { form.requestSubmit(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (e.key.toLowerCase() === "n" && !dlg.open && tag !== "input" && tag !== "textarea") { e.preventDefault(); openDialog(); }
+});
+
+/* ---------- polling + live timers ---------- */
+window.addEventListener("hashchange", route);
+let tick = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  tick++;
+  const active = S.detail && !TERMINAL.has(S.detail.job.status);
+  if (S.selected && (active || tick % 5 === 0)) loadDetail();
+  if (tick % 2 === 0) loadJobs();
+  if (tick % 5 === 0) loadHealth();
+}, 1500);
+// Cheap in-place updates so timers move without re-rendering (which would drop text selection and scroll).
+setInterval(() => {
+  document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = dur(Date.now() - Number(el.dataset.since)); });
+  document.querySelectorAll("[data-ago]").forEach((el) => { el.textContent = ago(el.dataset.ago); });
+}, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadJobs(); loadHealth(); loadDetail(); } });
+
+renderHealth(); renderDetail();
+loadHealth().then(loadJobs).then(route);
+</script>
 </body>
 </html>

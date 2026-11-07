@@ -177,7 +177,26 @@ The `HEAD` revision argument is recorded on the job and shown in reports, but th
 
 ## 8. Web console
 
-`web/index.html` (served at `http://localhost:8080/`) is a retro 8-bit console. **It is currently a scripted demo animation and is not wired to the API**: it does not show real jobs, logs or findings. Use the CLI or the HTTP API (`/api/v1/jobs`, `/api/v1/jobs/<id>`, `/api/v1/jobs/<id>/report`, `/api/v1/jobs/<id>/cancel`) for real results.
+`web/index.html` (served at `http://localhost:8080/`) is a single self-contained page wired to the real API. It makes no external requests (no CDN, no web fonts) and the server sends a strict Content-Security-Policy that blocks everything except same-origin calls.
+
+- **Audits list and detail**, with deep links (`#/jobs/<id>`) and a "Models ready / unreachable" indicator fed by `/health/ready`, so a dead model server is visible before you start a run.
+- **Live pipeline** (Prepare, Scout, Investigate, Review, Validate) with per-stage timing. The page polls every ~1.5 s while a job is running and stops polling a finished job.
+- **Findings with evidence**: weakness, invariant, impact, the Reviewer's decision and counterarguments, the validation outcome and exit code, the isolation level actually achieved (a warning if it was only advisory), the exact command that was run, and the captured test output.
+- **Activity log** of status transitions and agent calls; it opens automatically when a job fails, together with the error and a hint.
+- **New audit** dialog (press `N`) that requires the same authorization confirmation as `--authorized`, plus **Cancel** (two clicks) and **Export report** (Markdown).
+
+Everything shown comes from the API; model output, repository paths and test logs are rendered as plain text only, never as HTML. The API endpoints it uses:
+
+| Endpoint | Purpose |
+|:--|:--|
+| `GET /api/v1/jobs`, `POST /api/v1/jobs` | list and create audits |
+| `GET /api/v1/jobs/<id>` | one job, including `error_summary` |
+| `GET /api/v1/jobs/<id>/events` | status transitions and agent tasks |
+| `GET /api/v1/jobs/<id>/report[?format=markdown]` | findings with reviews, validations and the validation plan |
+| `POST /api/v1/jobs/<id>/cancel` | stop a running job |
+| `GET /api/v1/artifacts/<sha256>` | captured stdout/stderr of a validation run (hash-validated, capped at 64 KB) |
+
+Like the rest of the API it has no authentication, so keep it on localhost. The console is exercised over HTTP by `make e2e` (security headers, no external resources, endpoint shapes); its rendering is not covered by automated browser tests.
 
 ---
 
@@ -221,7 +240,6 @@ Some keys are accepted by the config loader but **not enforced yet**: `app.log_l
 - **Jobs run unbounded in parallel** (no `max_concurrent_jobs` enforcement), and there is no authentication on the API.
 - **The Reviewer's `request_more_evidence` decision does not loop back** to the Investigator yet, and a job whose hypotheses all end up in that state is reported as `refuted`.
 - **Validation is best-effort** (see §3) and its pass/fail contract is simple (see §1).
-- **The web console is not connected** to the API (see §8).
 - **Real-model behavior is untested here.** The automated tests use a scripted stand-in model; how well a 7B model finds and reasons about real bugs has not been evaluated.
 
 ---
@@ -260,6 +278,6 @@ oju-aiye/                      # Go module name: vuln-research
 │   ├── targets/               # vulnerable / patched Go targets for the e2e test
 │   ├── scenarios/             # scripted model replies
 │   └── vulnerable, patched/   # vault.sol fixtures
-├── web/index.html             # demo console (not wired to the API)
+├── web/index.html             # web console (single file, wired to the API)
 └── Makefile
 ```

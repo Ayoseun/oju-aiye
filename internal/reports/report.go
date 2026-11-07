@@ -20,29 +20,31 @@ type ReportSummary struct {
 
 // FindingDetail provides full provenance and evidence trail for an individual hypothesis.
 type FindingDetail struct {
-	HypothesisID      string                    `json:"hypothesis_id"`
-	Title             string                    `json:"title"`
-	Status            domain.HypothesisStatus   `json:"status"`
-	Weakness          domain.Weakness           `json:"weakness"`
-	AffectedLocations []domain.AffectedLocation `json:"affected_locations"`
-	SecurityInvariant string                    `json:"security_invariant"`
-	Impact            string                    `json:"impact"`
-	Counterarguments  []string                  `json:"counterarguments"`
-	Reviews           []*domain.ReviewResult    `json:"reviews"`
+	HypothesisID      string                     `json:"hypothesis_id"`
+	Title             string                     `json:"title"`
+	Status            domain.HypothesisStatus    `json:"status"`
+	Weakness          domain.Weakness            `json:"weakness"`
+	AffectedLocations []domain.AffectedLocation  `json:"affected_locations"`
+	SecurityInvariant string                     `json:"security_invariant"`
+	Impact            string                     `json:"impact"`
+	ExpectedFailure   string                     `json:"expected_failure"`
+	ValidationPlan    []string                   `json:"validation_plan"`
+	Counterarguments  []string                   `json:"counterarguments"`
+	Reviews           []*domain.ReviewResult     `json:"reviews"`
 	Validations       []*domain.ValidationResult `json:"validations"`
 }
 
 // ResearchReport represents the structured report object.
 type ResearchReport struct {
-	JobID              string          `json:"job_id"`
-	RepositoryRef      string          `json:"repository_ref"`
-	RepositoryRevision string          `json:"repository_revision"`
-	JobStatus          domain.JobStatus `json:"job_status"`
-	GeneratedAt        time.Time       `json:"generated_at"`
-	Summary            ReportSummary   `json:"summary"`
-	ConfirmedFindings  []FindingDetail `json:"confirmed_findings"`
-	RefutedFindings    []FindingDetail `json:"refuted_findings"`
-	InconclusiveFindings []FindingDetail `json:"inconclusive_findings"`
+	JobID                string           `json:"job_id"`
+	RepositoryRef        string           `json:"repository_ref"`
+	RepositoryRevision   string           `json:"repository_revision"`
+	JobStatus            domain.JobStatus `json:"job_status"`
+	GeneratedAt          time.Time        `json:"generated_at"`
+	Summary              ReportSummary    `json:"summary"`
+	ConfirmedFindings    []FindingDetail  `json:"confirmed_findings"`
+	RefutedFindings      []FindingDetail  `json:"refuted_findings"`
+	InconclusiveFindings []FindingDetail  `json:"inconclusive_findings"`
 }
 
 // GenerateMarkdownReport formats the research findings as an auditable Markdown document.

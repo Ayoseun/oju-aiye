@@ -45,6 +45,10 @@ type Store interface {
 	CreateTask(ctx context.Context, task *domain.AgentTask) error
 	GetTask(ctx context.Context, id uuid.UUID) (*domain.AgentTask, error)
 	UpdateTask(ctx context.Context, task *domain.AgentTask) error
+	ListTasks(ctx context.Context, jobID uuid.UUID) ([]*domain.AgentTask, error)
+
+	// Audit trail
+	ListTransitions(ctx context.Context, jobID uuid.UUID) ([]*state.TransitionRecord, error)
 }
 
 // MemoryStore provides a thread-safe in-memory store for hermetic testing.
@@ -58,6 +62,7 @@ type MemoryStore struct {
 	evidence     map[uuid.UUID][]*domain.Evidence
 	validations  map[uuid.UUID][]*domain.ValidationResult
 	tasks        map[uuid.UUID]*domain.AgentTask
+	taskOrder    []uuid.UUID
 	auditRecords []*state.TransitionRecord
 }
 
@@ -279,9 +284,45 @@ func (m *MemoryStore) CreateTask(ctx context.Context, task *domain.AgentTask) er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Stamp the caller's task too, so later UpdateTask calls keep the real start time.
+	if task.StartedAt == nil {
+		now := time.Now().UTC()
+		task.StartedAt = &now
+	}
 	copyTask := *task
 	m.tasks[task.ID] = &copyTask
+	m.taskOrder = append(m.taskOrder, task.ID)
 	return nil
+}
+
+// ListTasks returns a job's agent tasks in creation order.
+func (m *MemoryStore) ListTasks(ctx context.Context, jobID uuid.UUID) ([]*domain.AgentTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []*domain.AgentTask
+	for _, id := range m.taskOrder {
+		if t := m.tasks[id]; t != nil && t.JobID == jobID {
+			cp := *t
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+// ListTransitions returns a job's status transitions in chronological order.
+func (m *MemoryStore) ListTransitions(ctx context.Context, jobID uuid.UUID) ([]*state.TransitionRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []*state.TransitionRecord
+	for _, r := range m.auditRecords {
+		if r.JobID == jobID {
+			cp := *r
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
 }
 
 func (m *MemoryStore) GetTask(ctx context.Context, id uuid.UUID) (*domain.AgentTask, error) {
@@ -304,6 +345,9 @@ func (m *MemoryStore) UpdateTask(ctx context.Context, task *domain.AgentTask) er
 		return fmt.Errorf("task %s not found", task.ID)
 	}
 	copyTask := *task
+	if copyTask.StartedAt == nil {
+		copyTask.StartedAt = m.tasks[task.ID].StartedAt // never lose the start time
+	}
 	m.tasks[task.ID] = &copyTask
 	return nil
 }
