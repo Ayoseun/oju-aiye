@@ -2,7 +2,7 @@
 
 A coordinator-led, multi-agent security research pipeline written in **Go**. Three model-backed roles (Scout, Investigator, Reviewer) turn a codebase you are **authorized to audit** into falsifiable hypotheses, and a validation runner tries to reproduce the accepted ones.
 
-> **Status: early prototype.** The pipeline runs end to end against a model endpoint, but several pieces are intentionally minimal. Read [Current limitations](#9-current-limitations) before relying on any result.
+> **Status: early prototype.** The pipeline runs end to end against a model endpoint, but several pieces are intentionally minimal. Read [Current limitations](#10-current-limitations) before relying on any result.
 
 ---
 
@@ -122,12 +122,28 @@ Override models and endpoints with `SCOUT_MODEL_ID`, `SCOUT_BASE_URL` (and the `
 
 ---
 
-## 5. Makefile reference
+## 5. Testing without a GPU (scripted stand-in model)
+
+You can exercise the whole pipeline (real API, real CLI, real HTTP model adapter, schema validation, the validation sandbox, reports) without Ollama or a GPU. `replayllm` is a tiny OpenAI-compatible server that answers each role with a canned JSON file from `testdata/scenarios/<name>/`:
+
+```bash
+make test   # includes TestEndToEndReplay (needs `go` on PATH; use `go test -short` to skip)
+make e2e    # builds everything, starts replayllm + the API, drives them with the CLI
+```
+
+The bundled scenario claims a path-traversal bug in `fileserve.Read`, and `testdata/targets/` holds two Go modules with the same function: `traversal-vulnerable` and `traversal-patched`. The scripted model makes the **same** claim for both, and only the validation step (a real `go test` run in the sandbox) tells them apart: the vulnerable copy ends `confirmed`, the patched copy ends `refuted`. That checks the plumbing and the pass/fail contract, **not model quality**: the replay model cannot analyze code it has not been scripted for. To audit an arbitrary codebase you need a real model (see §2 and §4).
+
+To add a scenario, create a directory with `scout.json`, `investigator.json` and `reviewer.json` (valid against `schemas/`; `{{uuid}}` becomes a fresh UUID per reply) and run `replayllm -scenario <dir>`.
+
+---
+
+## 6. Makefile reference
 
 | Command | Action |
 |:--|:--|
 | `make build` | Compiles `bin/api` and `bin/cli` |
 | `make test` | Runs all tests |
+| `make e2e` | End-to-end smoke test with the scripted stand-in model (no GPU) |
 | `make test-race` | Runs tests with the Go race detector |
 | `make run-api` | API on `:8080` using `configs/config.example.yaml` |
 | `make run-api-autopull` | Same, with automatic model download |
@@ -138,7 +154,7 @@ Override models and endpoints with `SCOUT_MODEL_ID`, `SCOUT_BASE_URL` (and the `
 
 ---
 
-## 6. CLI
+## 7. CLI
 
 `bin/cli` talks to the API (`--server`, default `http://localhost:8080`).
 
@@ -159,13 +175,13 @@ The `HEAD` revision argument is recorded on the job and shown in reports, but th
 
 ---
 
-## 7. Web console
+## 8. Web console
 
 `web/index.html` (served at `http://localhost:8080/`) is a retro 8-bit console. **It is currently a scripted demo animation and is not wired to the API**: it does not show real jobs, logs or findings. Use the CLI or the HTTP API (`/api/v1/jobs`, `/api/v1/jobs/<id>`, `/api/v1/jobs/<id>/report`, `/api/v1/jobs/<id>/cancel`) for real results.
 
 ---
 
-## 8. Configuration
+## 9. Configuration
 
 Files live in `configs/` (`config.example.yaml` for native runs, `config.docker.yaml` for the Compose stack, `config.local.yaml` as a small local-test profile). Values support `${VAR}` and `${VAR:-default}`; startup fails with a clear error if a variable is unset and has no default.
 
@@ -199,29 +215,32 @@ Some keys are accepted by the config loader but **not enforced yet**: `app.log_l
 
 ---
 
-## 9. Current limitations
+## 10. Current limitations
 
 - **State is in memory.** Jobs, hypotheses and the audit trail are lost on restart. `migrations/001_initial_schema.sql` is the planned PostgreSQL schema; no Postgres store is implemented or wired.
 - **Jobs run unbounded in parallel** (no `max_concurrent_jobs` enforcement), and there is no authentication on the API.
 - **The Reviewer's `request_more_evidence` decision does not loop back** to the Investigator yet, and a job whose hypotheses all end up in that state is reported as `refuted`.
 - **Validation is best-effort** (see §3) and its pass/fail contract is simple (see §1).
-- **The web console is not connected** to the API (see §7).
+- **The web console is not connected** to the API (see §8).
+- **Real-model behavior is untested here.** The automated tests use a scripted stand-in model; how well a 7B model finds and reasons about real bugs has not been evaluated.
 
 ---
 
-## 10. Repository layout
+## 11. Repository layout
 
 ```
 oju-aiye/                      # Go module name: vuln-research
 ├── cmd/
 │   ├── api/main.go            # API daemon + job dispatch
-│   └── cli/main.go            # Operator CLI
+│   ├── cli/main.go            # Operator CLI
+│   └── replayllm/main.go      # scripted stand-in model server (testing)
 ├── configs/                   # example / docker / local-test YAML configs
 ├── deploy/
 │   ├── Dockerfile.api         # multi-stage build, non-root runtime
 │   └── compose.yaml           # ollama + api (mounts ./targets read-only)
 ├── internal/
 │   ├── agents/                # Scout, Investigator, Reviewer
+│   ├── replay/                # scripted OpenAI-compatible stand-in model
 │   ├── config/                # YAML loader, env expansion, validation
 │   ├── coordinator/           # sequential pipeline + state transitions
 │   ├── domain/                # domain models
@@ -236,7 +255,11 @@ oju-aiye/                      # Go module name: vuln-research
 ├── migrations/                # planned Postgres schema (not wired)
 ├── prompts/                   # agent prompts
 ├── schemas/                   # JSON Schemas for agent I/O
-├── testdata/                  # vulnerable / patched vault.sol fixtures
+├── scripts/e2e.sh             # end-to-end smoke test (make e2e)
+├── testdata/
+│   ├── targets/               # vulnerable / patched Go targets for the e2e test
+│   ├── scenarios/             # scripted model replies
+│   └── vulnerable, patched/   # vault.sol fixtures
 ├── web/index.html             # demo console (not wired to the API)
 └── Makefile
 ```

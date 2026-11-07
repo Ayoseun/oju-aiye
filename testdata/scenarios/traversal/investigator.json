@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "hypothesis_id": "{{uuid}}",
+  "candidate_id": "{{uuid}}",
+  "title": "Path traversal in fileserve.Read allows reading files outside the document root",
+  "weakness": {
+    "cwe": "CWE-22",
+    "category": "Path Traversal"
+  },
+  "affected_locations": [
+    {
+      "path": "fileserve.go",
+      "symbol": "Read",
+      "line_start": 10,
+      "line_end": 12
+    }
+  ],
+  "security_invariant": "Read must never return the contents of a file located outside root.",
+  "preconditions": [
+    "Attacker controls the name argument"
+  ],
+  "attacker_controlled_inputs": [
+    "name"
+  ],
+  "expected_failure": "Read(root, \"../secret.txt\") returns the contents of a file in root's parent directory instead of an error.",
+  "impact": "Arbitrary file read of anything the process can access.",
+  "supporting_evidence_ids": [],
+  "counterarguments": [
+    "A caller might validate name before calling Read"
+  ],
+  "validation_plan": [
+    "cat > exploit_test.go <<'EOT'\npackage fileserve\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nfunc TestTraversalEscapesRoot(t *testing.T) {\n\tbase := t.TempDir()\n\troot := filepath.Join(base, \"public\")\n\tif err := os.Mkdir(root, 0o755); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.WriteFile(filepath.Join(base, \"secret.txt\"), []byte(\"TOP-SECRET\"), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdata, err := Read(root, \"../secret.txt\")\n\tif err == nil {\n\t\tt.Fatalf(\"path traversal: read %q from outside the document root\", data)\n\t}\n}\nEOT\ngo test -run TestTraversalEscapesRoot -count=1 ./...\n"
+  ],
+  "status": "proposed"
+}

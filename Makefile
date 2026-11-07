@@ -14,7 +14,7 @@ GREEN := \033[32m
 YELLOW := \033[33m
 RESET := \033[0m
 
-.PHONY: all help build test test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
+.PHONY: all help build test e2e test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
 
 all: help
 
@@ -36,6 +36,10 @@ build:
 test:
 	@echo -e "$(CYAN)==> Running test suite...$(RESET)"
 	go test -v ./...
+
+## e2e: End-to-end smoke test with a scripted stand-in model (no GPU needed)
+e2e:
+	@./scripts/e2e.sh
 
 ## test-race: Run test suite with Go data race detector
 test-race:
