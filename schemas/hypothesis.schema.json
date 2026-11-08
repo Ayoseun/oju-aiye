@@ -76,6 +76,10 @@
       "type": "string",
       "minLength": 1
     },
+    "failure_signature": {
+      "type": "string",
+      "description": "Exact text the reproduction prints only when the vulnerability is demonstrated. A non-zero exit without it is treated as inconclusive."
+    },
     "impact": {
       "type": "string",
       "minLength": 1

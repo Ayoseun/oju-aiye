@@ -44,20 +44,23 @@ A coordinator-led, multi-agent security research pipeline written in **Go**. Thr
 ### The three-agent workflow
 
 1. **Scout** (`prompts/scout.md`): reads the repository inventory/context and emits candidate failure locations (`schemas/candidate.schema.json`).
-2. **Investigator** (`prompts/investigator.md`): traces data flow, states the security invariant that should hold, and writes a falsifiable hypothesis with a validation plan (`schemas/hypothesis.schema.json`).
+2. **Investigator** (`prompts/investigator.md`): traces data flow, states the security invariant that should hold, and writes a falsifiable hypothesis with a validation plan and a `failure_signature` (`schemas/hypothesis.schema.json`).
 3. **Reviewer** (`prompts/reviewer.md`): argues against the hypothesis and decides `accept_for_validation`, `request_more_evidence` or `reject_hypothesis` (`schemas/review.schema.json`).
 4. **Validation runner** (`internal/validation/runner.go`): runs the first command of an accepted hypothesis's validation plan (`sh -c <plan[0]>`) and classifies the result.
 
 ### How validation results are decided
 
+The Investigator must declare a `failure_signature` up front: text its test prints **only** when the vulnerability is demonstrated (for example `path traversal: read`). The runner then classifies the first command of the validation plan like this:
+
 | Result | When | Hypothesis status |
 |:--|:--|:--|
-| `reproduced` | command exits non-zero and it is not a setup problem | Confirmed |
-| `refuted` | command exits `0` | Refuted |
+| `reproduced` | exits non-zero **and** the output contains the declared signature | Confirmed |
+| `refuted` | exits `0` | Refuted |
+| `inconclusive` | exits non-zero but no usable signature was declared, or the output does not contain it (a typo, crash or missing dependency in the test itself looks exactly like this) | Inconclusive |
 | `setup_failed` | exit `126`/`127`, or output matches a known compile/setup error | Inconclusive (never marked refuted) |
 | timeout | exceeds `max_runtime_seconds` | Inconclusive |
 
-"Non-zero exit means reproduced" is a deliberately simple contract: the validation plan must be written so that it **fails only when the vulnerability is demonstrated**. A plan that fails for any other reason will be reported as reproduced, so treat Confirmed findings as leads to verify by hand.
+A signature shorter than 8 characters (`FAIL`, `error`) is treated as missing. This closes the biggest false-positive path, where any broken test used to count as a confirmed bug, but it is still only as honest as the test the model wrote: a model can print its own signature from a bogus test. Treat Confirmed findings as strong leads and read the captured output.
 
 ---
 
@@ -131,7 +134,7 @@ make test   # includes TestEndToEndReplay (needs `go` on PATH; use `go test -sho
 make e2e    # builds everything, starts replayllm + the API, drives them with the CLI
 ```
 
-The bundled scenario claims a path-traversal bug in `fileserve.Read`, and `testdata/targets/` holds two Go modules with the same function: `traversal-vulnerable` and `traversal-patched`. The scripted model makes the **same** claim for both, and only the validation step (a real `go test` run in the sandbox) tells them apart: the vulnerable copy ends `confirmed`, the patched copy ends `refuted`. That checks the plumbing and the pass/fail contract, **not model quality**: the replay model cannot analyze code it has not been scripted for. To audit an arbitrary codebase you need a real model (see §2 and §4).
+The bundled scenario claims a path-traversal bug in `fileserve.Read`, and `testdata/targets/` holds two Go modules with the same function: `traversal-vulnerable` and `traversal-patched`. The scripted model makes the **same** claim for both, and only the validation step (a real `go test` run in the sandbox) tells them apart: the vulnerable copy ends `confirmed`, the patched copy ends `refuted`. A third scenario, `traversal-wrong-signature`, has a test that fails on the vulnerable code but declares a signature it never prints; it ends `inconclusive`, which is the case the old "any non-zero exit" rule got wrong. That checks the plumbing and the pass/fail contract, **not model quality**: the replay model cannot analyze code it has not been scripted for. To audit an arbitrary codebase you need a real model (see §2 and §4).
 
 To add a scenario, create a directory with `scout.json`, `investigator.json` and `reviewer.json` (valid against `schemas/`; `{{uuid}}` becomes a fresh UUID per reply) and run `replayllm -scenario <dir>`.
 
@@ -239,7 +242,7 @@ Some keys are accepted by the config loader but **not enforced yet**: `app.log_l
 - **State is in memory.** Jobs, hypotheses and the audit trail are lost on restart. `migrations/001_initial_schema.sql` is the planned PostgreSQL schema; no Postgres store is implemented or wired.
 - **Jobs run unbounded in parallel** (no `max_concurrent_jobs` enforcement), and there is no authentication on the API.
 - **The Reviewer's `request_more_evidence` decision does not loop back** to the Investigator yet, and a job whose hypotheses all end up in that state is reported as `refuted`.
-- **Validation is best-effort** (see §3) and its pass/fail contract is simple (see §1).
+- **Validation is best-effort** (see §3). A Confirmed finding means "the declared signature appeared in a failing test", which is evidence, not proof (see §1).
 - **Real-model behavior is untested here.** The automated tests use a scripted stand-in model; how well a 7B model finds and reasons about real bugs has not been evaluated.
 
 ---

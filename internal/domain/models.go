@@ -144,6 +144,7 @@ type Hypothesis struct {
 	Preconditions            []string           `json:"preconditions"`
 	AttackerControlledInputs []string           `json:"attacker_controlled_inputs"`
 	ExpectedFailure          string             `json:"expected_failure"`
+	FailureSignature         string             `json:"failure_signature,omitempty"`
 	Impact                   string             `json:"impact"`
 	SupportingEvidenceIDs    []string           `json:"supporting_evidence_ids"`
 	Counterarguments         []string           `json:"counterarguments"`

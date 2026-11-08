@@ -29,7 +29,10 @@ type ExecutionRequest struct {
 	Args         []string
 	SourceDir    string
 	TestPatch    string
-	Timeout      time.Duration
+	// FailureSignature is text the command must print for a non-zero exit to count as
+	// proof. Without it (or if it is too short to be meaningful) a failure is inconclusive.
+	FailureSignature string
+	Timeout          time.Duration
 }
 
 // Runner executes validation tests in disposable environments.
@@ -170,9 +173,7 @@ func (r *Runner) Execute(ctx context.Context, req ExecutionRequest) (*domain.Val
 			outcome = domain.ValidationOutcomeSetupFailed
 			notes = "Test environment or compilation setup failed before reaching assertion."
 		} else {
-			// Test failed -> reproduced the vulnerability / invariant violation
-			outcome = domain.ValidationOutcomeReproduced
-			notes = "Security invariant assertion failed as predicted by hypothesis."
+			outcome, notes = classifyFailure(exitCode, req.FailureSignature, combinedOutput)
 		}
 	}
 
@@ -319,4 +320,28 @@ func copySourceTree(src, dst string, maxBytes int64) error {
 func storeContentAddressed(dir string, content []byte) (*tools.ArtifactRecord, error) {
 	sum := sha256.Sum256(content)
 	return tools.StoreArtifact(dir, hex.EncodeToString(sum[:])+".log", content)
+}
+
+// minSignatureLen keeps trivial signatures such as "FAIL" or "error" from counting as proof.
+const minSignatureLen = 8
+
+// classifyFailure decides what a non-zero exit means. A failure only reproduces the
+// vulnerability if the output also contains the signature the hypothesis declared in
+// advance; otherwise it could be a typo, crash or missing dependency in the test itself.
+func classifyFailure(exitCode int, signature, output string) (domain.ValidationOutcome, string) {
+	sig := strings.TrimSpace(signature)
+	switch {
+	case sig == "":
+		return domain.ValidationOutcomeInconclusive,
+			fmt.Sprintf("Command failed (exit %d) but the hypothesis declared no failure_signature, so a non-zero exit alone is not accepted as proof.", exitCode)
+	case len(sig) < minSignatureLen:
+		return domain.ValidationOutcomeInconclusive,
+			fmt.Sprintf("Command failed (exit %d) but the declared failure_signature is too short to be meaningful (minimum %d characters).", exitCode, minSignatureLen)
+	case strings.Contains(output, sig):
+		return domain.ValidationOutcomeReproduced,
+			"Command failed and printed the declared failure signature."
+	default:
+		return domain.ValidationOutcomeInconclusive,
+			fmt.Sprintf("Command failed (exit %d) but its output did not contain the declared failure signature, so the failure may be unrelated to the vulnerability (crash, typo, missing dependency).", exitCode)
+	}
 }

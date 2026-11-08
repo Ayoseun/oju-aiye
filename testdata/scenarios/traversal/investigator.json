@@ -23,6 +23,7 @@
     "name"
   ],
   "expected_failure": "Read(root, \"../secret.txt\") returns the contents of a file in root's parent directory instead of an error.",
+  "failure_signature": "path traversal: read",
   "impact": "Arbitrary file read of anything the process can access.",
   "supporting_evidence_ids": [],
   "counterarguments": [

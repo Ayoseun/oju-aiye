@@ -115,6 +115,7 @@ const (
     "preconditions": { "type": "array", "items": { "type": "string" } },
     "attacker_controlled_inputs": { "type": "array", "items": { "type": "string" } },
     "expected_failure": { "type": "string", "minLength": 1 },
+    "failure_signature": { "type": "string" },
     "impact": { "type": "string", "minLength": 1 },
     "supporting_evidence_ids": { "type": "array", "items": { "type": "string" } },
     "counterarguments": { "type": "array", "items": { "type": "string" } },

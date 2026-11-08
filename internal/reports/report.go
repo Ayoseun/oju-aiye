@@ -28,6 +28,7 @@ type FindingDetail struct {
 	SecurityInvariant string                     `json:"security_invariant"`
 	Impact            string                     `json:"impact"`
 	ExpectedFailure   string                     `json:"expected_failure"`
+	FailureSignature  string                     `json:"failure_signature"`
 	ValidationPlan    []string                   `json:"validation_plan"`
 	Counterarguments  []string                   `json:"counterarguments"`
 	Reviews           []*domain.ReviewResult     `json:"reviews"`

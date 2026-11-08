@@ -31,4 +31,5 @@ You must return ONLY a JSON object conforming to the review result schema:
 ## Rules
 - Base your review on primary source code, not merely on the Investigator's summary.
 - If there is doubt or missing context, prefer `request_more_evidence`.
+- Prefer `request_more_evidence` if the hypothesis has no `failure_signature`, if the signature is generic (such as `FAIL` or `error`), or if the validation plan would not print it only when the bug is present.
 - Return ONLY valid JSON matching the schema.

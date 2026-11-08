@@ -33,6 +33,7 @@ You must return ONLY a JSON object conforming to the hypothesis schema:
   "preconditions": ["<Explicit precondition 1>"],
   "attacker_controlled_inputs": ["<Input parameter 1>"],
   "expected_failure": "<Observable failure or invariant violation>",
+  "failure_signature": "<Exact text your test prints ONLY when the vulnerability is demonstrated>",
   "impact": "<Bounded impact description>",
   "supporting_evidence_ids": [],
   "counterarguments": ["<Mitigation or counterargument>"],
@@ -44,4 +45,6 @@ You must return ONLY a JSON object conforming to the hypothesis schema:
 ## Rules
 - Distinguish verified code facts from assumptions.
 - Do NOT declare a finding confirmed without runtime evidence.
+- `validation_plan[0]` is run with `sh -c` in a throwaway copy of the repository. It must exit non-zero AND print `failure_signature` when the vulnerability is present, and exit 0 when it is absent.
+- `failure_signature` must be specific text from your own assertion message (for example `path traversal: read`), not a generic word such as `FAIL`, `error` or `panic`. A non-zero exit without that text (a compile error, crash or missing tool) is treated as inconclusive, never as a confirmed finding.
 - Return ONLY valid JSON matching the schema.

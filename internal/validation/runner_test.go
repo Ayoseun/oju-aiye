@@ -53,10 +53,11 @@ func TestValidationRunnerInvariantFailure(t *testing.T) {
 	hypID := uuid.New()
 	// Simulate a test assertion failure via non-zero exit code
 	req := ExecutionRequest{
-		HypothesisID: hypID,
-		Command:      "sh",
-		Args:         []string{"-c", "echo 'AssertionFailed: balance < 0' >&2; exit 1"},
-		Timeout:      2 * time.Second,
+		HypothesisID:     hypID,
+		Command:          "sh",
+		Args:             []string{"-c", "echo 'AssertionFailed: balance < 0' >&2; exit 1"},
+		Timeout:          2 * time.Second,
+		FailureSignature: "AssertionFailed: balance < 0",
 	}
 
 	res, err := runner.Execute(context.Background(), req)
@@ -242,5 +243,45 @@ func TestValidationRunnerStoresContentAddressedArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "evidence-line") {
 		t.Fatalf("unexpected artifact content: %q", data)
+	}
+}
+
+// The point of the failure-signature contract: a non-zero exit is only proof when the
+// output also contains what the hypothesis said the exploit would print.
+func TestFailureSignatureContract(t *testing.T) {
+	cases := []struct {
+		name      string
+		script    string
+		signature string
+		want      domain.ValidationOutcome
+		noteHas   string
+	}{
+		{"failure with declared signature is reproduced", "echo 'invariant broken: balance < 0'; exit 1", "invariant broken: balance", domain.ValidationOutcomeReproduced, "declared failure signature"},
+		{"signature printed on stderr counts too", "echo 'invariant broken: balance < 0' >&2; exit 1", "invariant broken: balance", domain.ValidationOutcomeReproduced, ""},
+		{"failure without any signature is inconclusive", "exit 1", "", domain.ValidationOutcomeInconclusive, "no failure_signature"},
+		{"failure with unrelated output is inconclusive", "echo 'syntax error near unexpected token'; exit 2", "invariant broken: balance", domain.ValidationOutcomeInconclusive, "did not contain"},
+		{"generic short signature is not accepted", "echo FAIL; exit 1", "FAIL", domain.ValidationOutcomeInconclusive, "too short"},
+		{"clean exit is refuted even if the signature is printed", "echo 'invariant broken: balance < 0'; exit 0", "invariant broken: balance", domain.ValidationOutcomeRefuted, ""},
+		{"missing tool stays a setup failure despite a matching signature", "echo 'invariant broken: balance'; nonexistent-binary-xyz", "invariant broken: balance", domain.ValidationOutcomeSetupFailed, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := newTestRunner(t).Execute(context.Background(), ExecutionRequest{
+				HypothesisID:     uuid.New(),
+				Command:          "sh",
+				Args:             []string{"-c", tc.script},
+				FailureSignature: tc.signature,
+				Timeout:          5 * time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Outcome != tc.want {
+				t.Fatalf("outcome = %s, want %s (exit %d, notes %q)", res.Outcome, tc.want, res.ExitCode, res.Notes)
+			}
+			if tc.noteHas != "" && !strings.Contains(res.Notes, tc.noteHas) {
+				t.Fatalf("notes %q should mention %q", res.Notes, tc.noteHas)
+			}
+		})
 	}
 }

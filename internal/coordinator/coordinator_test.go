@@ -79,6 +79,7 @@ func TestCoordinatorFullThreeAgentPipeline(t *testing.T) {
 		"impact": "Drain of vault liquidity",
 		"supporting_evidence_ids": [],
 		"counterarguments": [],
+		"failure_signature": "AssertionFailed: invariant violated",
 		"validation_plan": ["echo 'AssertionFailed: invariant violated' >&2; exit 1"],
 		"status": "proposed"
 	}`, 200, 100)

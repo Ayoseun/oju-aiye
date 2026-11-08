@@ -586,7 +586,9 @@ function findingCard(f, jobStatus) {
       h("div", { class: "kv" }, chip(OUTCOME, v.outcome), h("span", { class: "mono" }, "exit " + v.exit_code)),
       parts[0] ? h("p", {}, parts[0]) : null);
     if (parts[1]) vf.append(h("div", { class: "note" + (advisory ? " warn" : "") }, h("b", {}, "Isolation: "), parts[1]));
-    if (v.outcome === "reproduced") vf.append(h("div", { class: "note" }, "“Reproduced” means the test command exited with an error. Read the output before trusting it."));
+    if (f.failure_signature) vf.append(h("div", { class: "kv", style: "margin-top:8px" }, "Expected signature", h("span", { class: "loc" }, f.failure_signature)));
+    if (v.outcome === "reproduced") vf.append(h("div", { class: "note" }, "“Reproduced” means the command failed and printed the signature declared in advance. Read the output before trusting it."));
+    else if (v.outcome === "inconclusive" && Number(v.exit_code) > 0) vf.append(h("div", { class: "note warn" }, "The command failed, but that alone isn’t accepted as proof. A failure only counts when it prints the declared signature."));
     vf.append(h("div", { class: "link-row" },
       h("button", { class: "link", type: "button", onclick: () => toggleShown(key + ":out", v) }, S.shown.has(key + ":out") ? "Hide output" : "Show output"),
       plan ? h("button", { class: "link", type: "button", onclick: () => toggleShown(key + ":cmd", v) }, S.shown.has(key + ":cmd") ? "Hide command" : "Show command") : null));

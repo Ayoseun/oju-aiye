@@ -13,13 +13,13 @@ import (
 
 // OpenAICompatibleConfig defines parameters for an OpenAI-compatible endpoint.
 type OpenAICompatibleConfig struct {
-	BaseURL         string
-	APIKey          string
-	ModelID         string
-	Timeout         time.Duration
-	MaxRetries      int
-	ProviderName    string
-	UseJSONFormat   bool
+	BaseURL       string
+	APIKey        string
+	ModelID       string
+	Timeout       time.Duration
+	MaxRetries    int
+	ProviderName  string
+	UseJSONFormat bool
 }
 
 // OpenAICompatibleAdapter communicates with any OpenAI-compatible HTTP inference API.

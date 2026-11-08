@@ -244,11 +244,12 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		}
 
 		valReq := validation.ExecutionRequest{
-			HypothesisID: hyp.HypothesisID,
-			SourceDir:    sourceDir,
-			Command:      cmd,
-			Args:         args,
-			Timeout:      time.Duration(c.cfg.Validation.MaxRuntimeSeconds) * time.Second,
+			HypothesisID:     hyp.HypothesisID,
+			SourceDir:        sourceDir,
+			FailureSignature: hyp.FailureSignature,
+			Command:          cmd,
+			Args:             args,
+			Timeout:          time.Duration(c.cfg.Validation.MaxRuntimeSeconds) * time.Second,
 		}
 
 		res, err := c.validator.Execute(ctx, valReq)

@@ -328,6 +328,7 @@ func main() {
 					SecurityInvariant: h.SecurityInvariant,
 					Impact:            h.Impact,
 					ExpectedFailure:   h.ExpectedFailure,
+					FailureSignature:  h.FailureSignature,
 					ValidationPlan:    h.ValidationPlan,
 					Counterarguments:  h.Counterarguments,
 					Reviews:           revs,

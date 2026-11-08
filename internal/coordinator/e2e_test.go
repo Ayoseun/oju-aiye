@@ -40,37 +40,40 @@ func TestEndToEndReplay(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
-	replaySrv, err := replay.New("testdata/scenarios/traversal")
-	if err != nil {
-		t.Fatal(err)
-	}
-	httpSrv := httptest.NewServer(replaySrv)
-	defer httpSrv.Close()
-
-	t.Setenv("REPLAY_BASE_URL", httpSrv.URL+"/v1")
 	t.Setenv("E2E_ARTIFACT_DIR", t.TempDir())
-	t.Setenv("GOCACHE", filepath.Join(os.TempDir(), "oju-e2e-gocache")) // shared so the 2nd run is fast
-
-	cfg, err := config.Load("configs/config.e2e.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("GOCACHE", filepath.Join(os.TempDir(), "oju-e2e-gocache")) // shared so later runs are fast
 
 	cases := []struct {
 		name        string
+		scenario    string
 		target      string
 		wantJob     domain.JobStatus
 		wantHyp     domain.HypothesisStatus
 		wantOutcome domain.ValidationOutcome
 	}{
-		{"vulnerable", "testdata/targets/traversal-vulnerable", domain.JobStatusConfirmed, domain.HypothesisConfirmed, domain.ValidationOutcomeReproduced},
-		{"patched", "testdata/targets/traversal-patched", domain.JobStatusRefuted, domain.HypothesisRefuted, domain.ValidationOutcomeRefuted},
+		{"vulnerable", "testdata/scenarios/traversal", "testdata/targets/traversal-vulnerable", domain.JobStatusConfirmed, domain.HypothesisConfirmed, domain.ValidationOutcomeReproduced},
+		{"patched", "testdata/scenarios/traversal", "testdata/targets/traversal-patched", domain.JobStatusRefuted, domain.HypothesisRefuted, domain.ValidationOutcomeRefuted},
+		// The test fails on the vulnerable code, but the model declared a signature the output
+		// never contains. The old "any non-zero exit" rule would have confirmed this.
+		{"failing test with wrong signature is not confirmed", "testdata/scenarios/traversal-wrong-signature", "testdata/targets/traversal-vulnerable", domain.JobStatusInconclusive, domain.HypothesisInconclusive, domain.ValidationOutcomeInconclusive},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 			defer cancel()
+
+			replaySrv, err := replay.New(tc.scenario)
+			if err != nil {
+				t.Fatal(err)
+			}
+			httpSrv := httptest.NewServer(replaySrv)
+			defer httpSrv.Close()
+			t.Setenv("REPLAY_BASE_URL", httpSrv.URL+"/v1")
+			cfg, err := config.Load("configs/config.e2e.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			s := store.NewMemoryStore()
 			reg := models.NewRegistry()
@@ -127,13 +130,13 @@ func TestEndToEndReplay(t *testing.T) {
 			if runs[0].Outcome != tc.wantOutcome {
 				t.Fatalf("validation outcome = %s (exit %d), want %s\nnotes: %s", runs[0].Outcome, runs[0].ExitCode, tc.wantOutcome, runs[0].Notes)
 			}
-			t.Logf("outcome=%s exit=%d isolation=%q", runs[0].Outcome, runs[0].ExitCode, runs[0].Notes)
+			for _, role := range []string{"scout", "investigator", "reviewer"} {
+				if n := replaySrv.Count(role); n != 1 {
+					t.Errorf("%s was called %d times, want 1", role, n)
+				}
+			}
+			t.Logf("outcome=%s exit=%d notes=%q", runs[0].Outcome, runs[0].ExitCode, runs[0].Notes)
 		})
 	}
 
-	for _, role := range []string{"scout", "investigator", "reviewer"} {
-		if got := replaySrv.Count(role); got != 2 {
-			t.Errorf("%s was called %d times, want 2 (once per target)", role, got)
-		}
-	}
 }
