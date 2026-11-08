@@ -27,6 +27,14 @@ func TestValidateJobTransition(t *testing.T) {
 		{"validating to refuted", domain.JobStatusValidating, domain.JobStatusRefuted, false},
 		{"validating to inconclusive", domain.JobStatusValidating, domain.JobStatusInconclusive, false},
 		{"validating to needs_more_evidence", domain.JobStatusValidating, domain.JobStatusNeedsMoreEvidence, false},
+		// A job that finds nothing, or cannot resolve its hypotheses, must be able to end inconclusive
+		{"discovering to inconclusive (scout found nothing)", domain.JobStatusDiscovering, domain.JobStatusInconclusive, false},
+		{"reviewing to inconclusive (nothing resolvable)", domain.JobStatusReviewing, domain.JobStatusInconclusive, false},
+		{"reviewing to refuted (all rejected)", domain.JobStatusReviewing, domain.JobStatusRefuted, false},
+		// ...but never straight to a positive result without validation
+		{"discovering to confirmed (illegal)", domain.JobStatusDiscovering, domain.JobStatusConfirmed, true},
+		{"reviewing to confirmed (illegal, must validate first)", domain.JobStatusReviewing, domain.JobStatusConfirmed, true},
+		{"analyzing to refuted (illegal, must be reviewed first)", domain.JobStatusAnalyzing, domain.JobStatusRefuted, true},
 		// Cancellation & failure
 		{"queued to cancelled", domain.JobStatusQueued, domain.JobStatusCancelled, false},
 		{"analyzing to failed", domain.JobStatusAnalyzing, domain.JobStatusFailed, false},

@@ -196,3 +196,36 @@ func TestUpdateTaskKeepsStartTime(t *testing.T) {
 		t.Fatalf("start time lost on update: %v", got.StartedAt)
 	}
 }
+
+// A revision must update the existing finding in place: same ID, same slot in the job's list,
+// and both the by-ID and by-job views must agree.
+func TestUpdateHypothesisReplacesInPlace(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	jobID := uuid.New()
+	h := &domain.Hypothesis{HypothesisID: uuid.New(), Title: "first draft", Status: domain.HypothesisNeedsMoreEvidence}
+	if err := s.CreateHypothesis(ctx, jobID, h); err != nil {
+		t.Fatal(err)
+	}
+
+	revised := *h
+	revised.Title = "revised draft"
+	revised.Status = domain.HypothesisUnderReview
+	if err := s.UpdateHypothesis(ctx, &revised); err != nil {
+		t.Fatal(err)
+	}
+
+	byID, _ := s.GetHypothesis(ctx, h.HypothesisID)
+	list, _ := s.ListHypotheses(ctx, jobID)
+	if len(list) != 1 {
+		t.Fatalf("revision created a duplicate: %d hypotheses", len(list))
+	}
+	if byID.Title != "revised draft" || list[0].Title != "revised draft" || list[0].Status != domain.HypothesisUnderReview {
+		t.Fatalf("views disagree after update: byID=%+v list=%+v", byID, list[0])
+	}
+
+	missing := &domain.Hypothesis{HypothesisID: uuid.New()}
+	if err := s.UpdateHypothesis(ctx, missing); err == nil {
+		t.Fatal("updating an unknown hypothesis should fail")
+	}
+}

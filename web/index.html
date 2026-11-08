@@ -100,7 +100,8 @@
   .callout { margin: 20px 0 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
   .callout.error { border-color: var(--red); background: var(--red-bg); }
   .callout .label { font-weight: 600; margin-bottom: 2px; }
-  .callout.error .label { color: var(--red); }
+  .callout.warn { border-color: var(--amber); background: var(--amber-bg); }
+  .callout.error .label { color: var(--red); } .callout.warn .label { color: var(--amber); }
 
   .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); margin: 28px 0 8px; list-style: none; padding: 0; }
   .stage { position: relative; padding-top: 22px; text-align: left; color: var(--subtle); }
@@ -420,18 +421,24 @@ function renderJobs() {
 
 /* ---------- rendering: detail ---------- */
 function stageStates(job, transitions) {
-  const trs = [...transitions].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const trs = [...transitions].sort((x, y) => new Date(x.timestamp) - new Date(y.timestamp));
   const terminal = TERMINAL.has(job.status);
   const end = terminal ? new Date(job.finished_at || job.updated_at).getTime() : Date.now();
   const out = STAGES.map((st) => {
-    const idx = trs.findIndex((t) => st.states.includes(t.to_state));
-    if (idx < 0) return { ...st, state: terminal ? "skipped" : "pending" };
-    let last = idx;
-    while (last + 1 < trs.length && st.states.includes(trs[last + 1].to_state)) last++;
-    const entered = new Date(trs[idx].timestamp).getTime();
-    const left = trs[last + 1] ? new Date(trs[last + 1].timestamp).getTime() : null;
-    const current = st.states.includes(job.status);
-    return { ...st, entered, state: current ? "active" : "done", ms: (left ?? end) - entered };
+    // A stage can be entered several times (revision rounds). Sum the time spent in it and
+    // count separate visits; "entered" is the first visit.
+    let ms = 0, visits = 0, entered = null, inside = false;
+    trs.forEach((t, i) => {
+      const next = trs[i + 1] ? new Date(trs[i + 1].timestamp).getTime() : end;
+      const at = new Date(t.timestamp).getTime();
+      if (st.states.includes(t.to_state)) {
+        if (!inside) { visits++; inside = true; }
+        if (entered === null) entered = at;
+        ms += Math.max(0, next - at);
+      } else inside = false;
+    });
+    if (!visits) return { ...st, state: terminal ? "skipped" : "pending" };
+    return { ...st, entered: entered, visits, ms, state: st.states.includes(job.status) ? "active" : "done" };
   });
   if (job.status === "failed" || job.status === "cancelled") {
     const lastEntered = [...out].reverse().find((s) => s.entered);
@@ -491,13 +498,26 @@ function renderDetail(notice) {
       hint ? h("div", { class: "muted", style: "margin-top:6px" }, hint) : null));
   }
 
+  const lastTransition = (events.transitions || [])[(events.transitions || []).length - 1];
+  const why = lastTransition && lastTransition.reason;
+  const nFindings = (report.confirmed_findings || []).length + (report.inconclusive_findings || []).length + (report.refuted_findings || []).length;
+  if (job.status === "inconclusive" && why) {
+    inner.append(h("div", { class: "callout warn" }, h("div", { class: "label" }, "Inconclusive: this is not an all-clear"),
+      h("div", {}, why),
+      h("div", { class: "muted", style: "margin-top:6px" }, nFindings ? "Unresolved findings are listed below. Nothing here has been shown to be safe." : "Nothing was analyzed, so nothing has been shown to be safe.")));
+  } else if (job.status === "refuted" && /none were tested/i.test(why || "")) {
+    inner.append(h("div", { class: "callout" }, h("div", { class: "label" }, "Rejected on review, not tested"),
+      h("div", {}, why)));
+  }
+
   const stages = stageStates(job, events.transitions || []);
   inner.append(h("ol", { class: "pipeline", "aria-label": "Pipeline progress" }, stages.map((s) =>
     h("li", { class: "stage " + s.state },
       h("span", { class: "node", "aria-hidden": "true" }),
       h("div", { class: "s-name" }, s.name, h("span", { class: "sr" }, " — " + s.state)),
       h("div", { class: "s-time" }, s.state === "pending" ? "" : s.state === "skipped" ? "skipped"
-        : s.state === "active" ? h("span", { "data-since": s.entered }, dur(s.ms)) : dur(s.ms))))));
+        : [s.state === "active" && s.visits === 1 ? h("span", { "data-since": s.entered }, dur(s.ms)) : dur(s.ms),
+           s.visits > 1 ? " · " + s.visits + " rounds" : ""])))));
 
   const groups = [
     ["Confirmed", report.confirmed_findings || []],
@@ -567,9 +587,15 @@ function findingCard(f, jobStatus) {
 
   const reviews = f.reviews || [];
   const rev = reviews[reviews.length - 1];
+  if (reviews.length > 1) {
+    body.append(field("Review rounds", h("ul", {}, reviews.map((r, i) => {
+      const missing = (r.missing_evidence || []).filter(Boolean);
+      return h("li", {}, "Round " + (i + 1) + ": " + (DECISION[r.decision] || [r.decision])[0], missing.length ? " — asked for: " + missing.join("; ") : "");
+    }))));
+  }
   if (rev) {
     const counters = (rev.counterarguments || []).filter(Boolean);
-    body.append(field("Reviewer",
+    body.append(field(reviews.length > 1 ? "Latest review" : "Reviewer",
       h("div", { class: "kv" }, chip(DECISION, rev.decision), rev.reviewer_model ? h("span", { class: "mono" }, rev.reviewer_model) : null),
       rev.rationale ? h("p", {}, rev.rationale) : null,
       counters.length ? h("ul", {}, counters.map((c) => h("li", {}, c))) : null));

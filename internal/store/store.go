@@ -28,6 +28,7 @@ type Store interface {
 	GetHypothesis(ctx context.Context, id uuid.UUID) (*domain.Hypothesis, error)
 	ListHypotheses(ctx context.Context, jobID uuid.UUID) ([]*domain.Hypothesis, error)
 	UpdateHypothesisStatus(ctx context.Context, id uuid.UUID, status domain.HypothesisStatus) error
+	UpdateHypothesis(ctx context.Context, h *domain.Hypothesis) error
 
 	// Review operations
 	CreateReview(ctx context.Context, review *domain.ReviewResult) error
@@ -209,6 +210,20 @@ func (m *MemoryStore) UpdateHypothesisStatus(ctx context.Context, id uuid.UUID, 
 		return fmt.Errorf("hypothesis %s not found", id)
 	}
 	h.Status = status
+	return nil
+}
+
+// UpdateHypothesis replaces a hypothesis in place, keeping its ID and its place in the job's list.
+// Writing through the existing pointer keeps the by-ID and by-job views consistent.
+func (m *MemoryStore) UpdateHypothesis(ctx context.Context, h *domain.Hypothesis) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, exists := m.hypotheses[h.HypothesisID]
+	if !exists {
+		return fmt.Errorf("hypothesis %s not found", h.HypothesisID)
+	}
+	*existing = *h
 	return nil
 }
 

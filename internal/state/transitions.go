@@ -37,9 +37,10 @@ var legalJobTransitions = map[domain.JobStatus]map[domain.JobStatus]bool{
 		domain.JobStatusFailed:      true,
 	},
 	domain.JobStatusDiscovering: {
-		domain.JobStatusAnalyzing: true,
-		domain.JobStatusCancelled: true,
-		domain.JobStatusFailed:    true,
+		domain.JobStatusAnalyzing:    true,
+		domain.JobStatusInconclusive: true, // the Scout found nothing to analyze
+		domain.JobStatusCancelled:    true,
+		domain.JobStatusFailed:       true,
 	},
 	domain.JobStatusAnalyzing: {
 		domain.JobStatusReviewing: true,
@@ -47,6 +48,7 @@ var legalJobTransitions = map[domain.JobStatus]map[domain.JobStatus]bool{
 		domain.JobStatusFailed:    true,
 	},
 	domain.JobStatusReviewing: {
+		domain.JobStatusInconclusive:       true, // nothing could be validated or resolved
 		domain.JobStatusNeedsMoreEvidence:  true,
 		domain.JobStatusReadyForValidation: true,
 		domain.JobStatusRefuted:            true,

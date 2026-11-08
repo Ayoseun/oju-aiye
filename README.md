@@ -45,8 +45,20 @@ A coordinator-led, multi-agent security research pipeline written in **Go**. Thr
 
 1. **Scout** (`prompts/scout.md`): reads the repository inventory/context and emits candidate failure locations (`schemas/candidate.schema.json`).
 2. **Investigator** (`prompts/investigator.md`): traces data flow, states the security invariant that should hold, and writes a falsifiable hypothesis with a validation plan and a `failure_signature` (`schemas/hypothesis.schema.json`).
-3. **Reviewer** (`prompts/reviewer.md`): argues against the hypothesis and decides `accept_for_validation`, `request_more_evidence` or `reject_hypothesis` (`schemas/review.schema.json`).
+3. **Reviewer** (`prompts/reviewer.md`): argues against the hypothesis and decides `accept_for_validation`, `request_more_evidence` or `reject_hypothesis` (`schemas/review.schema.json`). On `request_more_evidence` the Reviewer's feedback (counterarguments, missing evidence, falsification tests) goes back to the Investigator, which **revises the same hypothesis**, and the Reviewer looks again. `research.max_iterations_per_hypothesis` caps the review rounds (default 4; 1 means never revise).
 4. **Validation runner** (`internal/validation/runner.go`): runs the first command of an accepted hypothesis's validation plan (`sh -c <plan[0]>`) and classifies the result.
+
+### How a job ends
+
+| Job status | Meaning |
+|:--|:--|
+| `confirmed` | at least one hypothesis was validated (see below) |
+| `refuted` | every hypothesis was either rejected by the Reviewer (**none were tested**, and the reason says so) or tested and not reproduced |
+| `inconclusive` | not an all-clear. The Scout found nothing, a hypothesis never satisfied the Reviewer within the round limit, an agent call failed on some hypothesis, or a validation run was inconclusive. The reason lists what is unresolved |
+| `failed` | the run could not be carried out, for example the Scout or the Investigator failed on every candidate |
+| `cancelled` | stopped by the operator |
+
+A broken or flaky model never produces `refuted`: unreviewed, unrevisable or unanalyzed work is `inconclusive` or `failed`.
 
 ### How validation results are decided
 
@@ -136,7 +148,7 @@ make e2e    # builds everything, starts replayllm + the API, drives them with th
 
 The bundled scenario claims a path-traversal bug in `fileserve.Read`, and `testdata/targets/` holds two Go modules with the same function: `traversal-vulnerable` and `traversal-patched`. The scripted model makes the **same** claim for both, and only the validation step (a real `go test` run in the sandbox) tells them apart: the vulnerable copy ends `confirmed`, the patched copy ends `refuted`. A third scenario, `traversal-wrong-signature`, has a test that fails on the vulnerable code but declares a signature it never prints; it ends `inconclusive`, which is the case the old "any non-zero exit" rule got wrong. That checks the plumbing and the pass/fail contract, **not model quality**: the replay model cannot analyze code it has not been scripted for. To audit an arbitrary codebase you need a real model (see §2 and §4).
 
-To add a scenario, create a directory with `scout.json`, `investigator.json` and `reviewer.json` (valid against `schemas/`; `{{uuid}}` becomes a fresh UUID per reply) and run `replayllm -scenario <dir>`.
+To add a scenario, create a directory with `scout.json`, `investigator.json` and `reviewer.json` (valid against `schemas/`; `{{uuid}}` becomes a fresh UUID per reply) and run `replayllm -scenario <dir>`. To script different answers over time, add `<role>.<n>.json`: the nth call for that role gets that file and every other call falls back to `<role>.json`. The bundled scenarios cover the review loop and the failure paths: `traversal-evidence-once` (Reviewer asks once, then accepts), `-never-converges`, `-no-candidates`, `-rejected`, `-investigator-garbage` and `-reviewer-garbage`.
 
 ---
 
@@ -233,7 +245,7 @@ storage:
   artifact_directory: ./var/artifacts
 ```
 
-Some keys are accepted by the config loader but **not enforced yet**: `app.log_level`, `research.max_concurrent_jobs`, `research.max_hypotheses_per_job` (recorded as the job's iteration limit only), `research.max_iterations_per_hypothesis`, `research.require_reviewer_before_validation` (the Reviewer always runs), `validation.enabled`, `validation.max_memory_mb`, `validation.max_cpu_seconds`, `validation.max_processes`, `storage.postgres_dsn_env`, `storage.artifact_backend`.
+Some keys are accepted by the config loader but **not enforced yet**: `app.log_level`, `research.max_concurrent_jobs`, `research.max_hypotheses_per_job` (recorded as the job's iteration limit only), `research.require_reviewer_before_validation` (the Reviewer always runs), `validation.enabled`, `validation.max_memory_mb`, `validation.max_cpu_seconds`, `validation.max_processes`, `storage.postgres_dsn_env`, `storage.artifact_backend`.
 
 ---
 
@@ -241,7 +253,7 @@ Some keys are accepted by the config loader but **not enforced yet**: `app.log_l
 
 - **State is in memory.** Jobs, hypotheses and the audit trail are lost on restart. `migrations/001_initial_schema.sql` is the planned PostgreSQL schema; no Postgres store is implemented or wired.
 - **Jobs run unbounded in parallel** (no `max_concurrent_jobs` enforcement), and there is no authentication on the API.
-- **The Reviewer's `request_more_evidence` decision does not loop back** to the Investigator yet, and a job whose hypotheses all end up in that state is reported as `refuted`.
+- **Revision quality depends on the model.** By default all three roles use the same small model, so the Reviewer and Investigator share blind spots; a stronger, different Reviewer helps.
 - **Validation is best-effort** (see §3). A Confirmed finding means "the declared signature appeared in a failing test", which is evidence, not proof (see §1).
 - **Real-model behavior is untested here.** The automated tests use a scripted stand-in model; how well a 7B model finds and reasons about real bugs has not been evaluated.
 

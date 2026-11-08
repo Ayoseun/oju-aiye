@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "review_id": "{{uuid}}",
+  "hypothesis_id": "{{uuid}}",
+  "decision": "accept_for_validation",
+  "supporting_points": [
+    "The code path from name to os.ReadFile has no containment check",
+    "The proposed test fails only if the file outside root is actually read"
+  ],
+  "counterarguments": [
+    "Callers outside this package are not visible, so real-world reachability is unconfirmed"
+  ],
+  "missing_evidence": [],
+  "falsification_tests": [
+    "Run the same test against a version that checks filepath.Rel(root, full)"
+  ],
+  "rationale": "The hypothesis is specific and falsifiable; run the reproduction.",
+  "reviewer_model": "replay"
+}

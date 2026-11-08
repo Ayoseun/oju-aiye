@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -114,10 +115,7 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 	})
 
 	if len(candidates) == 0 {
-		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusAnalyzing, "No candidates discovered")
-		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReviewing, "Skipping review")
-		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "No security candidates found in source")
-		return nil
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "No security candidates found in source")
 	}
 
 	// 4. Analyzing (Investigator)
@@ -125,35 +123,23 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		return err
 	}
 
-	var hypotheses []*domain.Hypothesis
+	var (
+		hypotheses  []*domain.Hypothesis
+		candidateOf = map[uuid.UUID]*domain.Candidate{} // hypothesis ID -> its candidate, for revisions
+		problems    []string                            // agent failures that left something unanalyzed
+	)
 	for _, cand := range candidates {
-		invTask := &domain.AgentTask{
-			ID:           uuid.New(),
-			JobID:        jobID,
-			Role:         "investigator",
-			Status:       "running",
-			ModelID:      c.cfg.Models["investigator"].ModelID,
-			AttemptCount: 1,
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		_ = c.store.CreateTask(ctx, invTask)
-
-		hyp, _, err := c.investigator.FormulateHypothesis(ctx, cand, sourceContext)
-		invNow := time.Now().UTC()
-		invTask.FinishedAt = &invNow
-
+		hyp, err := c.investigate(ctx, jobID, cand, nil, nil, sourceContext)
 		if err != nil {
-			invTask.Status = "failed"
-			invTask.ErrorSummary = err.Error()
-			_ = c.store.UpdateTask(ctx, invTask)
+			problems = append(problems, fmt.Sprintf("investigator failed on %s: %v", cand.RepositoryPath, err))
 			continue
 		}
-
-		invTask.Status = "completed"
-		invTask.HypothesisID = &hyp.HypothesisID
-		_ = c.store.UpdateTask(ctx, invTask)
-
 		_ = c.store.CreateHypothesis(ctx, jobID, hyp)
 		hypotheses = append(hypotheses, hyp)
+		candidateOf[hyp.HypothesisID] = cand
 	}
 
 	telemetry.Info(fmt.Sprintf("Investigator formulated %d hypotheses", len(hypotheses)), map[string]interface{}{
@@ -161,56 +147,111 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		"count":  len(hypotheses),
 	})
 
-	// 5. Reviewing (Reviewer)
+	// If the Investigator failed on every candidate, nothing was analyzed. Say so; this must
+	// never look like an all-clear.
+	if len(hypotheses) == 0 {
+		msg := fmt.Sprintf("Investigator produced no usable hypothesis for any of %s", plural(len(candidates), "candidate", "candidates"))
+		if len(problems) > 0 {
+			msg += ": " + problems[0]
+		}
+		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusFailed, msg)
+		return fmt.Errorf("%s", msg)
+	}
+
+	// 5. Reviewing (Reviewer), with a bounded revise-and-re-review loop. When the Reviewer asks
+	// for more evidence, its feedback goes back to the Investigator, which revises the same
+	// hypothesis. max_iterations_per_hypothesis caps the review rounds (1 = never revise).
 	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReviewing, "Invoking Reviewer agent"); err != nil {
 		return err
 	}
 
-	var readyForValidationCount int
-	for _, hyp := range hypotheses {
-		revTask := &domain.AgentTask{
-			ID:           uuid.New(),
-			JobID:        jobID,
-			HypothesisID: &hyp.HypothesisID,
-			Role:         "reviewer",
-			Status:       "running",
-			ModelID:      c.cfg.Models["reviewer"].ModelID,
-			AttemptCount: 1,
-		}
-		_ = c.store.CreateTask(ctx, revTask)
+	maxRounds := c.cfg.Research.MaxIterationsPerHypothesis
+	if maxRounds < 1 {
+		maxRounds = 1
+	}
 
-		review, _, err := c.reviewer.ReviewHypothesis(ctx, hyp, sourceContext)
-		revNow := time.Now().UTC()
-		revTask.FinishedAt = &revNow
-
-		if err != nil {
-			revTask.Status = "failed"
-			revTask.ErrorSummary = err.Error()
-			_ = c.store.UpdateTask(ctx, revTask)
-			continue
+	var readyForValidationCount, rejectedCount, unresolvedCount int
+	pending := hypotheses
+	for round := 1; len(pending) > 0; round++ {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
-		revTask.Status = "completed"
-		_ = c.store.UpdateTask(ctx, revTask)
-		_ = c.store.CreateReview(ctx, review)
+		var needMore []*domain.Hypothesis
+		feedback := map[uuid.UUID]*domain.ReviewResult{}
+		for _, hyp := range pending {
+			review, err := c.review(ctx, jobID, hyp, sourceContext)
+			if err != nil {
+				// Unreviewed is unresolved, not refuted: keep it visible and say why.
+				problems = append(problems, fmt.Sprintf("reviewer failed on %q: %v", hyp.Title, err))
+				hyp.Status = domain.HypothesisInconclusive
+				_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisInconclusive)
+				unresolvedCount++
+				continue
+			}
 
-		switch review.Decision {
-		case domain.ReviewAcceptForValidation:
-			hyp.Status = domain.HypothesisReadyForValidation
-			_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisReadyForValidation)
-			readyForValidationCount++
-		case domain.ReviewRequestMoreEvidence:
-			hyp.Status = domain.HypothesisNeedsMoreEvidence
-			_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisNeedsMoreEvidence)
-		case domain.ReviewRejectHypothesis:
-			hyp.Status = domain.HypothesisRefuted
-			_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisRefuted)
+			switch review.Decision {
+			case domain.ReviewAcceptForValidation:
+				hyp.Status = domain.HypothesisReadyForValidation
+				_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisReadyForValidation)
+				readyForValidationCount++
+			case domain.ReviewRequestMoreEvidence:
+				hyp.Status = domain.HypothesisNeedsMoreEvidence
+				_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisNeedsMoreEvidence)
+				if round < maxRounds {
+					needMore = append(needMore, hyp)
+					feedback[hyp.HypothesisID] = review
+				} else {
+					problems = append(problems, fmt.Sprintf("%q still needed more evidence after %s", hyp.Title, plural(round, "review round", "review rounds")))
+					unresolvedCount++
+				}
+			case domain.ReviewRejectHypothesis:
+				hyp.Status = domain.HypothesisRefuted
+				_ = c.store.UpdateHypothesisStatus(ctx, hyp.HypothesisID, domain.HypothesisRefuted)
+				rejectedCount++
+			}
+		}
+		if len(needMore) == 0 {
+			break
+		}
+
+		// Revision round: hand the Reviewer's feedback back to the Investigator.
+		if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusNeedsMoreEvidence,
+			fmt.Sprintf("More evidence requested for %s (review round %d of %d)", plural(len(needMore), "hypothesis", "hypotheses"), round, maxRounds)); err != nil {
+			return err
+		}
+		if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusAnalyzing, "Investigator revising hypotheses from reviewer feedback"); err != nil {
+			return err
+		}
+
+		pending = nil
+		for _, hyp := range needMore {
+			revised, err := c.investigate(ctx, jobID, candidateOf[hyp.HypothesisID], hyp, feedback[hyp.HypothesisID], sourceContext)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("investigator could not revise %q: %v", hyp.Title, err))
+				unresolvedCount++ // stays needs_more_evidence
+				continue
+			}
+			_ = c.store.UpdateHypothesis(ctx, revised)
+			*hyp = *revised // later phases use the revised hypothesis
+			pending = append(pending, hyp)
+		}
+
+		if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReviewing,
+			fmt.Sprintf("Re-reviewing %s", plural(len(pending), "revised hypothesis", "revised hypotheses"))); err != nil {
+			return err
 		}
 	}
 
-	// Move job state according to review decisions
+	// Nothing to validate: say exactly why. "Refuted" is reserved for hypotheses the Reviewer
+	// explicitly rejected; anything unresolved or broken is inconclusive, never an all-clear.
 	if readyForValidationCount == 0 {
-		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "All hypotheses refuted or rejected during adversarial review")
+		if unresolvedCount > 0 {
+			return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive,
+				fmt.Sprintf("Nothing could be validated; %s unresolved. %s", plural(unresolvedCount, "hypothesis", "hypotheses"), summarizeProblems(problems)))
+		}
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted,
+			"All hypotheses were rejected during adversarial review; none were tested")
 	}
 
 	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusReadyForValidation, fmt.Sprintf("%s approved for validation", plural(readyForValidationCount, "hypothesis", "hypotheses"))); err != nil {
@@ -279,11 +320,15 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		"inconclusive": inconclusiveCount,
 	})
 
-	if confirmedCount > 0 {
-		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusConfirmed, fmt.Sprintf("%s confirmed reproducibly", plural(confirmedCount, "vulnerability hypothesis", "vulnerability hypotheses")))
+	unresolvedNote := ""
+	if unresolvedCount > 0 {
+		unresolvedNote = fmt.Sprintf("; %s unresolved", plural(unresolvedCount, "hypothesis", "hypotheses"))
 	}
-	if inconclusiveCount > 0 {
-		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "Validation execution inconclusive")
+	if confirmedCount > 0 {
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusConfirmed, fmt.Sprintf("%s confirmed reproducibly%s", plural(confirmedCount, "vulnerability hypothesis", "vulnerability hypotheses"), unresolvedNote))
+	}
+	if inconclusiveCount > 0 || unresolvedCount > 0 {
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, fmt.Sprintf("Validation inconclusive for %d%s. %s", inconclusiveCount, unresolvedNote, summarizeProblems(problems)))
 	}
 	return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "Validation tests disproved all hypotheses")
 }
@@ -293,4 +338,84 @@ func plural(n int, one, many string) string {
 		return fmt.Sprintf("%d %s", n, one)
 	}
 	return fmt.Sprintf("%d %s", n, many)
+}
+
+// summarizeProblems keeps job reasons short: the first two problems plus a count of the rest.
+func summarizeProblems(problems []string) string {
+	switch {
+	case len(problems) == 0:
+		return ""
+	case len(problems) <= 2:
+		return strings.Join(problems, "; ")
+	default:
+		return fmt.Sprintf("%s; %s (+%d more)", problems[0], problems[1], len(problems)-2)
+	}
+}
+
+// investigate runs the Investigator for a candidate (previous == nil) or revises an existing
+// hypothesis from Reviewer feedback, recording an agent task either way.
+func (c *Coordinator) investigate(ctx context.Context, jobID uuid.UUID, cand *domain.Candidate, previous *domain.Hypothesis, feedback *domain.ReviewResult, sourceContext string) (*domain.Hypothesis, error) {
+	task := &domain.AgentTask{
+		ID:           uuid.New(),
+		JobID:        jobID,
+		Role:         "investigator",
+		Status:       "running",
+		ModelID:      c.cfg.Models["investigator"].ModelID,
+		AttemptCount: 1,
+	}
+	if previous != nil {
+		task.HypothesisID = &previous.HypothesisID
+	}
+	_ = c.store.CreateTask(ctx, task)
+
+	var (
+		hyp *domain.Hypothesis
+		err error
+	)
+	if previous == nil {
+		hyp, _, err = c.investigator.FormulateHypothesis(ctx, cand, sourceContext)
+	} else {
+		hyp, _, err = c.investigator.ReviseHypothesis(ctx, cand, previous, feedback, sourceContext)
+	}
+
+	now := time.Now().UTC()
+	task.FinishedAt = &now
+	if err != nil {
+		task.Status = "failed"
+		task.ErrorSummary = err.Error()
+		_ = c.store.UpdateTask(ctx, task)
+		return nil, err
+	}
+	task.Status = "completed"
+	task.HypothesisID = &hyp.HypothesisID
+	_ = c.store.UpdateTask(ctx, task)
+	return hyp, nil
+}
+
+// review runs the Reviewer on a hypothesis and records the task and the review.
+func (c *Coordinator) review(ctx context.Context, jobID uuid.UUID, hyp *domain.Hypothesis, sourceContext string) (*domain.ReviewResult, error) {
+	task := &domain.AgentTask{
+		ID:           uuid.New(),
+		JobID:        jobID,
+		HypothesisID: &hyp.HypothesisID,
+		Role:         "reviewer",
+		Status:       "running",
+		ModelID:      c.cfg.Models["reviewer"].ModelID,
+		AttemptCount: 1,
+	}
+	_ = c.store.CreateTask(ctx, task)
+
+	review, _, err := c.reviewer.ReviewHypothesis(ctx, hyp, sourceContext)
+	now := time.Now().UTC()
+	task.FinishedAt = &now
+	if err != nil {
+		task.Status = "failed"
+		task.ErrorSummary = err.Error()
+		_ = c.store.UpdateTask(ctx, task)
+		return nil, err
+	}
+	task.Status = "completed"
+	_ = c.store.UpdateTask(ctx, task)
+	_ = c.store.CreateReview(ctx, review)
+	return review, nil
 }

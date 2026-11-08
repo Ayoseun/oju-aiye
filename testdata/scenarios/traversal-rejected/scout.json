@@ -1,0 +1,24 @@
+[
+  {
+    "schema_version": "1.0",
+    "candidate_id": "{{uuid}}",
+    "repository_path": "fileserve.go",
+    "symbol": "Read",
+    "line_start": 10,
+    "line_end": 12,
+    "suspected_class": "path-traversal",
+    "rationale": "Read joins an untrusted name onto root with filepath.Join and opens the result without checking that it stays inside root.",
+    "observed_facts": [
+      "filepath.Join cleans '..' segments, so a name like '../secret.txt' resolves outside root",
+      "The joined path is passed straight to os.ReadFile"
+    ],
+    "assumptions": [
+      "name is attacker-controlled (for example taken from a URL)"
+    ],
+    "suggested_next_steps": [
+      "Write a test that reads '../secret.txt' relative to a temp root",
+      "Check whether callers sanitize name"
+    ],
+    "confidence": 0.85
+  }
+]

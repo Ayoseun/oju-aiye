@@ -17,8 +17,12 @@ import (
 
 // Server serves <scenarioDir>/{scout,investigator,reviewer}.json as model replies.
 // Any "{{uuid}}" in a file is replaced with a fresh UUID on every reply.
+//
+// To script different answers over time, add <role>.<n>.json (n starts at 1): the nth
+// call for that role gets that file, and every other call falls back to <role>.json.
 type Server struct {
 	replies map[string]string
+	nth     map[string]map[int]string // role -> call number -> reply
 	mu      sync.Mutex
 	counts  map[string]int
 }
@@ -27,16 +31,39 @@ var roles = []string{"scout", "investigator", "reviewer"}
 
 // New loads a scenario directory.
 func New(scenarioDir string) (*Server, error) {
-	s := &Server{replies: map[string]string{}, counts: map[string]int{}}
-	for _, role := range roles {
-		b, err := os.ReadFile(filepath.Join(scenarioDir, role+".json"))
+	s := &Server{replies: map[string]string{}, nth: map[string]map[int]string{}, counts: map[string]int{}}
+	load := func(name string) (string, error) {
+		b, err := os.ReadFile(filepath.Join(scenarioDir, name))
 		if err != nil {
-			return nil, fmt.Errorf("scenario %q: %w", scenarioDir, err)
+			return "", fmt.Errorf("scenario %q: %w", scenarioDir, err)
 		}
 		if !json.Valid([]byte(strings.ReplaceAll(string(b), "{{uuid}}", "00000000-0000-0000-0000-000000000000"))) {
-			return nil, fmt.Errorf("scenario %q: %s.json is not valid JSON", scenarioDir, role)
+			return "", fmt.Errorf("scenario %q: %s is not valid JSON", scenarioDir, name)
 		}
-		s.replies[role] = string(b)
+		return string(b), nil
+	}
+	for _, role := range roles {
+		reply, err := load(role + ".json")
+		if err != nil {
+			return nil, err
+		}
+		s.replies[role] = reply
+
+		matches, _ := filepath.Glob(filepath.Join(scenarioDir, role+".[0-9]*.json"))
+		for _, m := range matches {
+			var n int
+			if _, err := fmt.Sscanf(filepath.Base(m), role+".%d.json", &n); err != nil || n < 1 {
+				continue
+			}
+			reply, err := load(filepath.Base(m))
+			if err != nil {
+				return nil, err
+			}
+			if s.nth[role] == nil {
+				s.nth[role] = map[int]string{}
+			}
+			s.nth[role][n] = reply
+		}
 	}
 	return s, nil
 }
@@ -53,7 +80,8 @@ func roleOf(userMsg string) string {
 	switch {
 	case strings.Contains(userMsg, "Identify potential security candidates"):
 		return "scout"
-	case strings.Contains(userMsg, "Formulate a structured hypothesis"):
+	case strings.Contains(userMsg, "Formulate a structured hypothesis"),
+		strings.Contains(userMsg, "Revise the hypothesis"):
 		return "investigator"
 	case strings.Contains(userMsg, "independent adversarial critique"):
 		return "reviewer"
@@ -98,9 +126,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	s.counts[role]++
+	call := s.counts[role]
 	s.mu.Unlock()
 
-	content := s.replies[role]
+	content, ok := s.nth[role][call]
+	if !ok {
+		content = s.replies[role]
+	}
 	for strings.Contains(content, "{{uuid}}") {
 		content = strings.Replace(content, "{{uuid}}", uuid.NewString(), 1)
 	}
