@@ -69,7 +69,8 @@ check_console_surface() {  # <confirmed job id>
   curl -s "$base/api/v1/artifacts/$ref" | grep -q 'FAIL' || { echo "FAIL: artifact endpoint did not return the failing test output"; return 1; }
   code="$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/artifacts/not-a-hash")"
   [ "$code" = "400" ] || { echo "FAIL: malformed artifact id returned HTTP $code, want 400"; return 1; }
-  echo "ok: CSP present, no external resources, /events, /report plan, /artifacts (and its input check)"
+  curl -s "$base/api/v1/system" | grep -q '"data_leaves_machine":false' || { echo "FAIL: /api/v1/system should report a fully local setup for the e2e config"; return 1; }
+  echo "ok: CSP present, no external resources, /events, /report plan, /artifacts (and its input check), /system"
 }
 
 rc=0

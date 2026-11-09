@@ -1,0 +1,73 @@
+# Everything on this machine (Ollama on localhost). Meant for a small, CPU-only laptop such as a
+# 16 GB Intel Mac: private, free, and slow. Nothing leaves the machine.
+#
+#   ollama serve                      # in another terminal
+#   ollama pull hermes3:8b            # or whatever you set below; check `ollama list`
+#   make run-api-mac
+#
+# One model serves all four roles on purpose: on 16 GB, switching between different models means
+# reloading several GB from disk every time. Override per role with the *_MODEL_ID variables.
+app:
+  environment: local
+  profile: mac-local
+  log_level: info
+  http_port: 8080
+
+research:
+  max_concurrent_jobs: 1
+  max_hypotheses_per_job: 3            # bounded: every extra hypothesis costs minutes on a CPU
+  max_iterations_per_hypothesis: 2     # one revision round at most
+  max_agent_retries: 1
+  job_timeout_seconds: 10800           # 3 hours
+  require_reviewer_before_validation: true
+
+validation:
+  enabled: true
+  network_access: disabled
+  max_runtime_seconds: 300
+  max_memory_mb: 1024
+  max_cpu_seconds: 120
+  max_processes: 64
+  max_artifact_mb: 100
+
+models:
+  lead:
+    adapter: openai-compatible
+    model_id: ${LEAD_MODEL_ID:-hermes3:8b}
+    base_url: ${LEAD_BASE_URL:-http://localhost:11434/v1}
+    api_key_env: LEAD_API_KEY
+    timeout_seconds: 600
+    max_output_tokens: 1200
+    temperature: 0.3
+
+  scout:
+    adapter: openai-compatible
+    model_id: ${SCOUT_MODEL_ID:-hermes3:8b}
+    base_url: ${SCOUT_BASE_URL:-http://localhost:11434/v1}
+    api_key_env: SCOUT_API_KEY
+    timeout_seconds: 900
+    max_output_tokens: 2000
+    temperature: 0.1
+
+  investigator:
+    adapter: openai-compatible
+    model_id: ${INVESTIGATOR_MODEL_ID:-hermes3:8b}
+    base_url: ${INVESTIGATOR_BASE_URL:-http://localhost:11434/v1}
+    api_key_env: INVESTIGATOR_API_KEY
+    timeout_seconds: 900
+    max_output_tokens: 3000
+    temperature: 0.1
+
+  reviewer:
+    adapter: openai-compatible
+    model_id: ${REVIEWER_MODEL_ID:-hermes3:8b}
+    base_url: ${REVIEWER_BASE_URL:-http://localhost:11434/v1}
+    api_key_env: REVIEWER_API_KEY
+    timeout_seconds: 900
+    max_output_tokens: 3000
+    temperature: 0.1
+
+storage:
+  postgres_dsn_env: DATABASE_URL
+  artifact_backend: local
+  artifact_directory: ./var/artifacts

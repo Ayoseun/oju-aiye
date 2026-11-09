@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -85,7 +86,13 @@ func main() {
 
 	// Automatic model downloading if enabled
 	if *autoPull {
+		pulled := map[string]bool{} // roles often share one model; download each only once
 		for role, mCfg := range cfg.Models {
+			key := mCfg.BaseURL + "|" + mCfg.ModelID
+			if pulled[key] {
+				continue
+			}
+			pulled[key] = true
 			if mCfg.Adapter == "openai-compatible" || mCfg.Adapter == "ollama" {
 				go func(rName, mID, bURL string) {
 					prov := models.NewModelProvisioner(bURL)
@@ -208,6 +215,16 @@ func main() {
 		default:
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
+	})
+
+	// Where the models run, so the console can say plainly whether your code leaves this machine.
+	mux.HandleFunc("/api/v1/system", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(describeSystem(cfg))
 	})
 
 	// Validation output (stdout/stderr) by content hash. Only <sha256>.log files inside the
@@ -402,4 +419,50 @@ func main() {
 		telemetry.Error("Server shutdown failed", "SHUTDOWN_ERROR", map[string]interface{}{"error": err.Error()})
 	}
 	telemetry.Info("Server stopped cleanly.", nil)
+}
+
+type systemRole struct {
+	Role    string `json:"role"`
+	ModelID string `json:"model_id"`
+	Host    string `json:"host"`
+	Remote  bool   `json:"remote"`
+}
+
+type systemInfo struct {
+	Profile           string       `json:"profile"`
+	Environment       string       `json:"environment"`
+	Roles             []systemRole `json:"roles"`
+	DataLeavesMachine bool         `json:"data_leaves_machine"`
+	RemoteHosts       []string     `json:"remote_hosts"`
+}
+
+// describeSystem summarizes where each model role runs. It never includes API keys.
+func describeSystem(cfg *config.Config) systemInfo {
+	order := map[string]int{"lead": 0, "scout": 1, "investigator": 2, "reviewer": 3}
+	info := systemInfo{Profile: cfg.App.Profile, Environment: cfg.App.Environment, Roles: []systemRole{}, RemoteHosts: []string{}}
+	seen := map[string]bool{}
+	for role, m := range cfg.Models {
+		r := systemRole{Role: role, ModelID: m.ModelID, Host: m.Endpoint().Host, Remote: m.LeavesMachine()}
+		info.Roles = append(info.Roles, r)
+		if r.Remote {
+			info.DataLeavesMachine = true
+			if !seen[r.Host] {
+				seen[r.Host] = true
+				info.RemoteHosts = append(info.RemoteHosts, r.Host)
+			}
+		}
+	}
+	sort.Slice(info.Roles, func(i, j int) bool {
+		oi, iok := order[info.Roles[i].Role]
+		oj, jok := order[info.Roles[j].Role]
+		if iok != jok {
+			return iok
+		}
+		if iok && oi != oj {
+			return oi < oj
+		}
+		return info.Roles[i].Role < info.Roles[j].Role
+	})
+	sort.Strings(info.RemoteHosts)
+	return info
 }

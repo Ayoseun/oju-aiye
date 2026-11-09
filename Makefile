@@ -14,7 +14,7 @@ GREEN := \033[32m
 YELLOW := \033[33m
 RESET := \033[0m
 
-.PHONY: all help build test e2e test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
+.PHONY: all help build test e2e run-api-mac run-api-gpu test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
 
 all: help
 
@@ -49,8 +49,18 @@ test-race:
 ## run-api: Run the API daemon locally using configs/config.example.yaml
 run-api: build
 	@echo -e "$(CYAN)==> Launching API server on :8080...$(RESET)"
-	@echo -e "$(YELLOW)Retro 8-bit UI available at: http://localhost:8080/$(RESET)"
+	@echo -e "$(YELLOW)Console available at: http://localhost:8080/$(RESET)"
 	./$(API_BIN) -config configs/config.example.yaml
+
+## run-api-mac: Run with every model on this machine (Ollama on localhost), tuned for a small CPU-only laptop
+run-api-mac: build
+	@echo -e "$(CYAN)==> Launching API with the mac-local profile (nothing leaves this machine)...$(RESET)"
+	./$(API_BIN) -config configs/config.mac.yaml -auto-pull
+
+## run-api-gpu: Run with models on a GPU server you control (set the GPU_* variables first; see configs/gpu.env.example)
+run-api-gpu: build
+	@echo -e "$(CYAN)==> Launching API with the remote-gpu profile (your code is sent to GPU_BASE_URL)...$(RESET)"
+	./$(API_BIN) -config configs/config.gpu.yaml
 
 ## run-api-autopull: Run the API daemon with automated model downloading enabled
 run-api-autopull: build

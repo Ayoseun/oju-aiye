@@ -135,6 +135,35 @@ make run-api-autopull # API on :8080; pulls the configured models from Ollama
 
 Override models and endpoints with `SCOUT_MODEL_ID`, `SCOUT_BASE_URL` (and the `INVESTIGATOR_*` / `REVIEWER_*` equivalents).
 
+### Option C: choose where the models run
+
+Two ready-made profiles, switchable with one command. The console always shows which one is active (a pill in the header, plus a warning in the new-audit dialog when your code would leave this machine).
+
+| | `make run-api-mac` | `make run-api-gpu` |
+|:--|:--|:--|
+| Config | `configs/config.mac.yaml` | `configs/config.gpu.yaml` |
+| Where models run | Ollama on this machine | a GPU server you control |
+| Does your code leave the machine? | No | **Yes, in every prompt** |
+| Tuned for | small CPU-only laptops (one shared model, 1 revision round, long timeouts) | speed and quality (bigger models, full revision loop) |
+| Needs | `ollama pull <model>` | the `GPU_*` variables in `configs/gpu.env.example`, no defaults, so it can't start half-configured |
+
+**On a small Mac.** Ollama must be installed and `ollama serve` running. The profile defaults all four roles to `hermes3:8b` (check the tag with `ollama list`; override with `LEAD_MODEL_ID`, `SCOUT_MODEL_ID`, and so on). One shared model avoids reloading several GB between roles on 16 GB. Expect roughly 2 to 4 tokens per second on an older Intel laptop (an estimate, not a measurement), so an audit can take an hour or more; it is meant for development and small targets. Old Macs may be unable to run the current Ollama app; building llama.cpp is the fallback, since it serves the same OpenAI-compatible API.
+
+**On a GPU server.**
+
+```bash
+cp configs/gpu.env.example configs/gpu.env      # git-ignored; fill in the model tags and URL
+source configs/gpu.env && make run-api-gpu
+```
+
+Reach the server in one of these ways, best first:
+
+1. **SSH tunnel:** `ssh -N -L 11434:localhost:11434 you@your-gpu-host`, then `GPU_BASE_URL=http://localhost:11434/v1`. Encrypted and needs no open port. The profile marks every role `remote: true`, so the console still reports that your code leaves the machine even though the URL says localhost.
+2. **https reverse proxy** that checks an API key (set `GPU_API_KEY`).
+3. **WireGuard or Tailscale address** over plain http. Add `allow_insecure_http: true` to each model in `config.gpu.yaml`.
+
+**Ollama has no authentication, so never expose its port to the internet.** The config loader refuses to start when a model's `base_url` is plain `http://` to another machine, unless that model sets `allow_insecure_http: true`, because it would send your source code (and any API key) unencrypted. To mix the two (for example a local lead and a remote analysis model), set `base_url` per role. `GET /api/v1/system` reports the profile, each role's model and host, and whether any code leaves the machine (never keys).
+
 ---
 
 ## 5. Testing without a GPU (scripted stand-in model)
@@ -209,6 +238,7 @@ Everything shown comes from the API; model output, repository paths and test log
 | `GET /api/v1/jobs/<id>/events` | status transitions and agent tasks |
 | `GET /api/v1/jobs/<id>/report[?format=markdown]` | findings with reviews, validations and the validation plan |
 | `POST /api/v1/jobs/<id>/cancel` | stop a running job |
+| `GET /api/v1/system` | active profile, where each model role runs, and whether code leaves this machine |
 | `GET /api/v1/artifacts/<sha256>` | captured stdout/stderr of a validation run (hash-validated, capped at 64 KB) |
 
 Like the rest of the API it has no authentication, so keep it on localhost. The console is exercised over HTTP by `make e2e` (security headers, no external resources, endpoint shapes); its rendering is not covered by automated browser tests.
@@ -217,7 +247,7 @@ Like the rest of the API it has no authentication, so keep it on localhost. The 
 
 ## 9. Configuration
 
-Files live in `configs/` (`config.example.yaml` for native runs, `config.docker.yaml` for the Compose stack, `config.local.yaml` as a small local-test profile). Values support `${VAR}` and `${VAR:-default}`; startup fails with a clear error if a variable is unset and has no default.
+Files live in `configs/`: `config.example.yaml` (native), `config.mac.yaml` and `config.gpu.yaml` (the two profiles in §4), `config.docker.yaml` (Compose stack), `config.e2e.yaml` (tests) and `config.local.yaml` (a small local-test profile). Model roles accept `remote: true` (report the endpoint as another machine, e.g. an SSH tunnel) and `allow_insecure_http: true` (permit plain http to a private network); `app.profile` is the label the console shows. Values support `${VAR}` and `${VAR:-default}`; startup fails with a clear error if a variable is unset and has no default.
 
 ```yaml
 app:

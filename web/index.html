@@ -51,6 +51,9 @@
   .health { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--border); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); flex: none; }
   .health.ok .dot { background: var(--green); } .health.bad .dot { background: var(--red); }
+  .scope.remote { color: var(--amber); border-color: var(--amber); background: var(--amber-bg); }
+  .scope.remote .dot { background: var(--amber); } .scope.local .dot { background: var(--accent); }
+  .scope[hidden] { display: none; }
   .btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-weight: 500; text-decoration: none; color: var(--text); white-space: nowrap; }
   .btn:hover { background: var(--hover); }
   .btn.primary { background: var(--accent); border-color: transparent; color: #0b0c10; }
@@ -203,6 +206,7 @@
       Vulnerability Research
     </div>
     <span class="spacer"></span>
+    <span id="scope" class="health scope" hidden></span>
     <span id="health" class="health" role="status"><span class="dot"></span><span id="health-text">Checking…</span></span>
     <button id="new-btn" class="btn primary" type="button">New audit <kbd>N</kbd></button>
   </header>
@@ -225,6 +229,7 @@
       <input id="f-rev" type="text" autocomplete="off" spellcheck="false" placeholder="HEAD">
       <span class="hint">Recorded on the report. The directory is audited as it is on disk; no checkout happens.</span>
     </label>
+    <div id="remote-note" class="callout warn" hidden role="note" style="margin:0 0 14px"></div>
     <label class="check"><input id="f-auth" type="checkbox"><span>I’m authorized to audit this code, and I understand test commands written by the model will run on this machine.</span></label>
     <p id="form-error" class="form-error" role="alert"></p>
     <div class="dlg-actions">
@@ -319,7 +324,7 @@ const loc = (l) => l.path + (l.symbol ? " · " + l.symbol : "") + ":" + l.line_s
 
 /* ---------- state ---------- */
 const S = {
-  jobs: [], selected: null, detail: null, health: null,
+  jobs: [], selected: null, detail: null, health: null, system: null,
   expanded: new Set(), collapsed: new Set(), shown: new Set(), outputs: new Map(), activityOpen: false, activityTouched: false,
   sigs: { jobs: "", detail: "", health: "" }, armedCancel: false, offline: false,
 };
@@ -344,6 +349,19 @@ async function loadHealth() {
   const sig = JSON.stringify(data) + S.offline;
   if (sig === S.sigs.health) return;
   S.sigs.health = sig; S.health = data; renderHealth();
+}
+async function loadSystem() {
+  try { S.system = await api("/api/v1/system"); } catch (_) { return; }
+  renderScope();
+}
+function renderScope() {
+  const el = $("#scope"), sys = S.system;
+  if (!sys) { el.hidden = true; return; }
+  el.hidden = false;
+  const remote = !!sys.data_leaves_machine;
+  el.className = "health scope " + (remote ? "remote" : "local");
+  el.replaceChildren(h("span", { class: "dot" }), remote ? "Remote · " + sys.remote_hosts.join(", ") : "On this machine");
+  el.title = (sys.profile ? "Profile: " + sys.profile + "\n" : "") + (sys.roles || []).map((r) => r.role + ": " + r.model_id + " @ " + r.host + (r.remote ? " (remote)" : "")).join("\n");
 }
 async function loadJobs() {
   try {
@@ -657,7 +675,14 @@ function onboarding() {
 
 /* ---------- new-audit dialog ---------- */
 const dlg = $("#dlg"), form = $("#new-form");
-function openDialog() { form.reset(); $("#form-error").textContent = ""; $("#submit-dlg").disabled = true; dlg.showModal(); $("#f-repo").focus(); }
+function openDialog() {
+  const note = $("#remote-note"), sys = S.system;
+  if (sys && sys.data_leaves_machine) {
+    note.hidden = false;
+    note.replaceChildren(h("div", { class: "label" }, "Your code leaves this machine"),
+      "Every prompt, which includes the source being audited, is sent to " + sys.remote_hosts.join(", ") + ". Only continue if you trust that server.");
+  } else note.hidden = true;
+  form.reset(); $("#form-error").textContent = ""; $("#submit-dlg").disabled = true; dlg.showModal(); $("#f-repo").focus(); }
 $("#new-btn").addEventListener("click", openDialog);
 $("#cancel-dlg").addEventListener("click", () => dlg.close());
 const syncSubmit = () => { $("#submit-dlg").disabled = !($("#f-auth").checked && $("#f-repo").value.trim()); };
@@ -690,6 +715,7 @@ setInterval(() => {
   if (S.selected && (active || tick % 5 === 0)) loadDetail();
   if (tick % 2 === 0) loadJobs();
   if (tick % 5 === 0) loadHealth();
+  if (tick % 20 === 0) loadSystem();
 }, 1500);
 // Cheap in-place updates so timers move without re-rendering (which would drop text selection and scroll).
 setInterval(() => {
@@ -699,6 +725,7 @@ setInterval(() => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadJobs(); loadHealth(); loadDetail(); } });
 
 renderHealth(); renderDetail();
+loadSystem();
 loadHealth().then(loadJobs).then(route);
 </script>
 </body>

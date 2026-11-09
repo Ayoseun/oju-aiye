@@ -14,7 +14,9 @@ import (
 type AppConfig struct {
 	Environment string `yaml:"environment"`
 	LogLevel    string `yaml:"log_level"`
-	HTTPPort    int    `yaml:"http_port"`
+	// Profile is a free-form label shown in the console, for example "mac-local" or "remote-gpu".
+	Profile  string `yaml:"profile"`
+	HTTPPort int    `yaml:"http_port"`
 }
 
 // ResearchConfig defines operational limits for research runs.
@@ -55,6 +57,11 @@ type ModelRoleConfig struct {
 	TimeoutSeconds  int     `yaml:"timeout_seconds"`
 	MaxOutputTokens int     `yaml:"max_output_tokens"`
 	Temperature     float64 `yaml:"temperature"`
+	// Remote marks the endpoint as another machine even if it looks local (an SSH tunnel to a
+	// GPU box appears as localhost). It only affects what the console tells you.
+	Remote bool `yaml:"remote"`
+	// AllowInsecureHTTP permits plain http to a non-local host. Only for private, trusted networks.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
 }
 
 func (m ModelRoleConfig) Timeout() time.Duration {
@@ -196,5 +203,5 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	return nil
+	return c.validateEndpoints()
 }
