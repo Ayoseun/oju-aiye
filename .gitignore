@@ -1,3 +1,4 @@
 bin/
 configs/gpu.env
+configs/free.env
 var/

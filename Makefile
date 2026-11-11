@@ -14,7 +14,7 @@ GREEN := \033[32m
 YELLOW := \033[33m
 RESET := \033[0m
 
-.PHONY: all help build test e2e run-api-mac run-api-gpu test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
+.PHONY: all help build test e2e run-api-mac run-api-gpu run-api-free audit test-race run-api run-api-autopull clean docker-up docker-down docker-logs docker-cli fmt
 
 all: help
 
@@ -61,6 +61,16 @@ run-api-mac: build
 run-api-gpu: build
 	@echo -e "$(CYAN)==> Launching API with the remote-gpu profile (your code is sent to GPU_BASE_URL)...$(RESET)"
 	./$(API_BIN) -config configs/config.gpu.yaml
+
+## run-api-free: Run the API against a free online model endpoint (see configs/free.env.example)
+run-api-free: build
+	@echo -e "$(CYAN)==> Launching API with the free-online profile (your code leaves this machine)...$(RESET)"
+	@echo -e "$(YELLOW)Source configs/free.env first to pick a provider. Console: http://localhost:8080/$(RESET)"
+	./$(API_BIN) -config configs/config.free.yaml
+
+## audit: Run one real audit against a running API and print the report (TARGET=<dir> to override)
+audit: build
+	@./scripts/audit.sh $(TARGET)
 
 ## run-api-autopull: Run the API daemon with automated model downloading enabled
 run-api-autopull: build

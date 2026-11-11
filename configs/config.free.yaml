@@ -1,0 +1,73 @@
+# Free online model endpoints, for testing the pipeline against a real model over the internet.
+#
+# Default: Pollinations (https://text.pollinations.ai/openai, model "openai-fast") - no signup,
+# no API key, no card. If that endpoint is slow or busy, point the roles at another free
+# provider; configs/free.env.example has a ready-made preset for each one.
+#
+#   source configs/free.env       # copy of free.env.example, edited
+#   make run-api-free
+#
+# WARNING: these endpoints receive your source code. Every role is marked `remote: true`, so the
+# console keeps saying that your code leaves this machine, and base_url must be https (the config
+# loader refuses plain http to a remote host unless you explicitly opt in).
+app:
+  environment: development
+  profile: free-online
+  log_level: info
+  http_port: 8080
+
+research:
+  max_concurrent_jobs: 1
+  max_hypotheses_per_job: 3             # free tiers are slow and rate-limited; keep it small
+  max_iterations_per_hypothesis: 2      # one revision round at most
+  max_agent_retries: 6                 # a rate-limited call must be waited out, not failed
+  agent_retry_base_seconds: 10         # the anonymous Pollinations quota is 1 reply per 45s
+  agent_retry_max_seconds: 60
+  job_timeout_seconds: 1800
+  require_reviewer_before_validation: true
+
+validation:
+  enabled: true
+  network_access: disabled
+  max_runtime_seconds: 300          # the first run compiles the target's test binary; on a
+                                    # slow or busy machine a cold Go build takes minutes
+  max_memory_mb: 1024
+  max_cpu_seconds: 120
+  max_processes: 64
+  max_artifact_mb: 100
+
+models:
+  scout:
+    adapter: openai-compatible
+    model_id: ${SCOUT_MODEL_ID:-openai-fast}
+    base_url: ${SCOUT_BASE_URL:-https://text.pollinations.ai/openai}
+    api_key_env: SCOUT_API_KEY
+    timeout_seconds: 300
+    max_output_tokens: 2500
+    temperature: 0.1
+    remote: true
+
+  investigator:
+    adapter: openai-compatible
+    model_id: ${INVESTIGATOR_MODEL_ID:-openai-fast}
+    base_url: ${INVESTIGATOR_BASE_URL:-https://text.pollinations.ai/openai}
+    api_key_env: INVESTIGATOR_API_KEY
+    timeout_seconds: 600
+    max_output_tokens: 5000
+    temperature: 0.1
+    remote: true
+
+  reviewer:
+    adapter: openai-compatible
+    model_id: ${REVIEWER_MODEL_ID:-openai-fast}
+    base_url: ${REVIEWER_BASE_URL:-https://text.pollinations.ai/openai}
+    api_key_env: REVIEWER_API_KEY
+    timeout_seconds: 600
+    max_output_tokens: 4000
+    temperature: 0.1
+    remote: true
+
+storage:
+  postgres_dsn_env: DATABASE_URL
+  artifact_backend: local
+  artifact_directory: ./var/artifacts

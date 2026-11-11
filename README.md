@@ -181,6 +181,74 @@ To add a scenario, create a directory with `scout.json`, `investigator.json` and
 
 ---
 
+## 5b. Testing against a real model over a free online API
+
+The scripted stand-in model proves the plumbing, not the model. To exercise the pipeline against
+a **real** model without a GPU, point the roles at any free OpenAI-compatible endpoint.
+`configs/config.free.yaml` and `configs/free.env.example` are set up for this:
+
+```bash
+cp configs/free.env.example configs/free.env    # keep one provider block uncommented
+source configs/free.env
+make run-api-free                                 # API on :8080
+make audit                                        # one real audit + the Markdown report
+make audit TARGET=/path/to/your/repo              # ...against a repository you may audit
+```
+
+`make audit` creates a job, polls it to a terminal state and prints the report. It defaults to
+the bundled vulnerable fixture (`testdata/targets/traversal-vulnerable`).
+
+### Providers that work today (checked 2026-11-11)
+
+| Provider | Base URL | Key | Limits | Notes |
+|:--|:--|:--|:--|:--|
+| **Pollinations** | `https://text.pollinations.ai/openai` | none | 1 reply / 45 s per IP | The default: no signup, no card. One anonymous model, `openai-fast` (GPT-OSS 20B, a *reasoning* model), so it needs the "answer immediately" prompts and the odd retry |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-…` | 25+ `:free` models; 20 req/min, 50 req/day (1000/day after $10 of credits) | Biggest free catalogue; ids rotate often |
+| **Groq** | `https://api.groq.com/openai/v1` | `gsk_…` | per-model daily caps | Fastest free tier; good models (`openai/gpt-oss-120b`) |
+| **Requesty** | `https://router.requesty.ai/v1` | key | 200 req/day | Gateway over many free models |
+| **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `nvapi-…` | free credits | Nemotron/Llama models |
+
+Google's Gemini free tier is OpenAI-compatible but its path (`…/v1beta/openai`) does not end in
+`/v1`, which the adapter's URL join does not handle; use one of the above.
+
+### What to expect
+
+- **It is slow.** A single hypothesis is three model calls (Scout → Investigator → Reviewer);
+  with a per-minute quota that is minutes, not seconds. `research.agent_retry_base_seconds`
+  controls how long the adapter waits out a rate limit.
+- **Rate limits are retried, not fatal.** Free endpoints signal a limit in several ways: `429`,
+  `5xx`, `402` with a limit-related body (Pollinations answers `402 FREE_LIMIT`), and `400` with
+  `output_token_limit_exceeded`. The adapter retries all of them, honouring a `Retry-After`
+  header, with exponential backoff capped by `research.agent_retry_max_seconds`. A genuine
+  billing failure (`402 insufficient credits`) is still reported immediately.
+- **Anonymous free endpoints are flaky.** The same model name can be served by several upstreams
+  behind one gateway, and some of them are chatty reasoning variants that never produce an
+  answer. Expect a run to need a few retries; if it still fails, the job ends as `failed` or
+  `inconclusive` with the reason attached — never as a false "confirmed".
+- **The first validation of a target is the slow one.** It compiles the target's test binary,
+  and on a busy or slow machine a cold Go build takes minutes. `validation.max_runtime_seconds`
+  has to cover that, otherwise the run ends `inconclusive` (never a false "confirmed") with the
+  timeout in the notes. Later runs reuse the build cache and are seconds.
+- **Small free models fail the schema more often.** Agent output is validated against
+  `schemas/`; when a model returns something that does not match, that hypothesis becomes
+  `inconclusive` — never a false "confirmed".
+- **Some endpoints have a small output budget.** If the provider stops at its token limit, the
+  adapter reports the truncation (`finish_reason=length`) instead of letting the agent choke on
+  half a JSON object. The prompts ask for terse answers to fit smaller budgets.
+- **Reasoning models eat the output budget.** Free endpoints often serve reasoning models
+  (GPT-OSS, Nemotron, Qwen3-thinking). Their reasoning tokens come out of the *same* budget as
+  the answer, so a chatty model returns a truncated object and the call fails. Every prompt tells
+  the role to answer immediately without deliberation, and a role can be given
+  `reasoning_effort: none` in the config for providers that accept it.
+- **Your code leaves the machine.** Every role in `configs/config.free.yaml` is marked
+  `remote: true`, so the console says so on the header and in the new-audit dialog. Only audit
+  code you are allowed to send to a third party.
+
+If you want a real model with no network round-trip at all, run Ollama locally and use
+`configs/config.mac.yaml` (see §2).
+
+---
+
 ## 6. Makefile reference
 
 | Command | Action |
@@ -191,6 +259,8 @@ To add a scenario, create a directory with `scout.json`, `investigator.json` and
 | `make test-race` | Runs tests with the Go race detector |
 | `make run-api` | API on `:8080` using `configs/config.example.yaml` |
 | `make run-api-autopull` | Same, with automatic model download |
+| `make run-api-free` | API on `:8080` using `configs/config.free.yaml` (free online endpoints) |
+| `make audit [TARGET=dir]` | Run one real audit against a running API and print the report |
 | `make docker-up` / `docker-down` / `docker-logs` | Manage the Docker Compose stack |
 | `make docker-cli ARGS="..."` | Run the CLI inside the API container |
 | `make fmt` | `gofmt` all Go files |
@@ -257,6 +327,8 @@ app:
 research:
   job_timeout_seconds: 1800
   max_agent_retries: 2          # values <= 0 fall back to 3
+  agent_retry_base_seconds: 2   # wait before the first retry of a rate-limited model call
+  agent_retry_max_seconds: 60   # cap on a single wait between two attempts
 
 validation:
   network_access: disabled
