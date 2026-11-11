@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +21,15 @@ type OpenAICompatibleConfig struct {
 	MaxRetries    int
 	ProviderName  string
 	UseJSONFormat bool
+	// RetryBaseDelay is the wait before the first retry; each further retry doubles it.
+	// Free and shared endpoints rate-limit hard, so this is deliberately generous.
+	RetryBaseDelay time.Duration
+	// RetryMaxDelay caps a single wait between attempts.
+	RetryMaxDelay time.Duration
+	// ReasoningEffort is passed through to providers that support it ("none", "low", ...).
+	// It is empty by default: not every endpoint accepts the parameter, and some reject
+	// unknown values, so it is only sent when the operator asks for it.
+	ReasoningEffort string
 }
 
 // OpenAICompatibleAdapter communicates with any OpenAI-compatible HTTP inference API.
@@ -37,6 +47,12 @@ func NewOpenAICompatibleAdapter(cfg OpenAICompatibleConfig) *OpenAICompatibleAda
 	}
 	if cfg.ProviderName == "" {
 		cfg.ProviderName = "openai-compatible"
+	}
+	if cfg.RetryBaseDelay <= 0 {
+		cfg.RetryBaseDelay = 2 * time.Second
+	}
+	if cfg.RetryMaxDelay <= 0 {
+		cfg.RetryMaxDelay = 60 * time.Second
 	}
 	// Trim trailing slash on BaseURL
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
@@ -64,10 +80,14 @@ type chatCompletionRequest struct {
 	Temperature    float64         `json:"temperature"`
 	MaxTokens      int             `json:"max_tokens,omitempty"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+	// ReasoningEffort is only set when the operator configured it, because endpoints
+	// that do not know the parameter reject the whole request.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type chatCompletionChoice struct {
-	Message chatMessage `json:"message"`
+	Message      chatMessage `json:"message"`
+	FinishReason string      `json:"finish_reason"`
 }
 
 type chatCompletionUsage struct {
@@ -94,10 +114,11 @@ func (a *OpenAICompatibleAdapter) Generate(ctx context.Context, req ModelRequest
 	}
 
 	payload := chatCompletionRequest{
-		Model:       a.cfg.ModelID,
-		Messages:    messages,
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxOutputTokens,
+		Model:           a.cfg.ModelID,
+		Messages:        messages,
+		Temperature:     req.Temperature,
+		MaxTokens:       req.MaxOutputTokens,
+		ReasoningEffort: a.cfg.ReasoningEffort,
 	}
 
 	if a.cfg.UseJSONFormat || req.ResponseSchema != "" {
@@ -117,15 +138,14 @@ func (a *OpenAICompatibleAdapter) Generate(ctx context.Context, req ModelRequest
 	}
 
 	var lastErr error
-	backoff := 500 * time.Millisecond
+	wait := a.cfg.RetryBaseDelay
 
 	for attempt := 0; attempt <= a.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
 				return ModelResponse{}, ctx.Err()
-			case <-time.After(backoff):
-				backoff *= 2
+			case <-time.After(wait):
 			}
 		}
 
@@ -142,6 +162,7 @@ func (a *OpenAICompatibleAdapter) Generate(ctx context.Context, req ModelRequest
 		resp, err := a.client.Do(httpReq)
 		if err != nil {
 			lastErr = fmt.Errorf("http request failed (attempt %d): %w", attempt+1, err)
+			wait = a.nextRetryDelay(wait, "")
 			continue
 		}
 
@@ -153,8 +174,9 @@ func (a *OpenAICompatibleAdapter) Generate(ctx context.Context, req ModelRequest
 		}
 
 		// Handle transient server errors with retries
-		if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode <= 599) {
+		if isRetryableStatus(resp.StatusCode, respBytes) {
 			lastErr = fmt.Errorf("transient http error code %d: %s", resp.StatusCode, string(respBytes))
+			wait = a.nextRetryDelay(wait, resp.Header.Get("Retry-After"))
 			continue
 		}
 
@@ -175,17 +197,85 @@ func (a *OpenAICompatibleAdapter) Generate(ctx context.Context, req ModelRequest
 			return ModelResponse{}, fmt.Errorf("model returned empty choices list")
 		}
 
-		return ModelResponse{
-			Content:      parsed.Choices[0].Message.Content,
+		choice := parsed.Choices[0]
+		result := ModelResponse{
+			Content:      choice.Message.Content,
 			ModelID:      a.cfg.ModelID,
 			Provider:     a.cfg.ProviderName,
 			InputTokens:  parsed.Usage.PromptTokens,
 			OutputTokens: parsed.Usage.CompletionTokens,
 			DurationMS:   time.Since(start).Milliseconds(),
-		}, nil
+			FinishReason: choice.FinishReason,
+		}
+
+		// A truncated answer is not a malformed answer: the provider ran out of output budget
+		// halfway through. Reporting it as such stops the agent from trying to parse half a
+		// JSON object, and names the real cause.
+		if result.Truncated() {
+			return result, fmt.Errorf("model output was truncated by the provider (finish_reason=%s, %d completion tokens): the answer is incomplete and cannot be parsed or validated. Use a model or endpoint with a larger output budget, or ask for a shorter answer",
+				result.FinishReason, result.OutputTokens)
+		}
+
+		return result, nil
 	}
 
 	return ModelResponse{}, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// isRetryableStatus reports whether a failed request is worth repeating. Shared and free
+// endpoints signal a rate limit in several ways: 429, 5xx, and 402 with a limit-related body
+// (Pollinations answers 402 FREE_LIMIT for its anonymous per-IP quota). Without the 402 case a
+// single rate-limited call failed the whole audit.
+//
+// A 400 with code "output_token_limit_exceeded" is retryable too: the same model name can be
+// served by several upstreams behind a free endpoint, and one of them can run a chatty
+// reasoning variant that spends the whole budget without answering. Another attempt often
+// lands on a different upstream.
+func isRetryableStatus(status int, body []byte) bool {
+	switch {
+	case status == http.StatusTooManyRequests:
+		return true
+	case status >= 500 && status <= 599:
+		return true
+	case status == http.StatusPaymentRequired:
+		lower := strings.ToLower(string(body))
+		for _, marker := range []string{"free_limit", "free limit", "rate limit", "ratelimit", "too many requests", "retry after", "quota"} {
+			if strings.Contains(lower, marker) {
+				return true
+			}
+		}
+	case status == http.StatusBadRequest:
+		lower := strings.ToLower(string(body))
+		if strings.Contains(lower, "output_token_limit_exceeded") {
+			return true
+		}
+	}
+	return false
+}
+
+// nextRetryDelay doubles the wait between attempts and never waits less than the server asked
+// for. It is capped so a single job cannot stall forever.
+func (a *OpenAICompatibleAdapter) nextRetryDelay(current time.Duration, retryAfter string) time.Duration {
+	next := current * 2
+	if ra := parseRetryAfter(retryAfter); ra > next {
+		next = ra
+	}
+	if next > a.cfg.RetryMaxDelay {
+		next = a.cfg.RetryMaxDelay
+	}
+	return next
+}
+
+// parseRetryAfter reads a Retry-After header expressed in seconds.
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return 0
 }
 
 func (a *OpenAICompatibleAdapter) Health(ctx context.Context) error {

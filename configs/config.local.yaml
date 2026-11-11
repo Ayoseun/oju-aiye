@@ -1,7 +1,7 @@
 app:
   environment: local-test
   log_level: info
-  http_port: 8080
+  http_port: ${HTTP_PORT:-8080}
 
 research:
   max_concurrent_jobs: 1
@@ -12,14 +12,14 @@ research:
 validation:
   enabled: true
   network_access: disabled
-  max_runtime_seconds: 60
+  max_runtime_seconds: 300          # the first validation compiles the target's test binary
 
 models:
   scout:
     adapter: openai-compatible
     model_id: llama3.1:8b
     base_url: http://localhost:11434/v1
-    timeout_seconds: 120
+    timeout_seconds: 600
     max_output_tokens: 2500
     temperature: 0.1
 
@@ -27,7 +27,7 @@ models:
     adapter: openai-compatible
     model_id: llama3.1:8b
     base_url: http://localhost:11434/v1
-    timeout_seconds: 180
+    timeout_seconds: 900
     max_output_tokens: 3000
     temperature: 0.1
 
@@ -35,7 +35,7 @@ models:
     adapter: openai-compatible
     model_id: llama3.1:8b
     base_url: http://localhost:11434/v1
-    timeout_seconds: 180
+    timeout_seconds: 900
     max_output_tokens: 2500
     temperature: 0.1
 

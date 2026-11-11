@@ -24,6 +24,23 @@ type ModelResponse struct {
 	InputTokens  int
 	OutputTokens int
 	DurationMS   int64
+	// FinishReason is what the provider reported for the completion ("stop", "length", ...).
+	// "length" means the answer was cut off at the token limit and is therefore incomplete.
+	FinishReason string
+}
+
+// Truncated reports whether the provider stopped because it hit the output token limit.
+func (r ModelResponse) Truncated() bool {
+	return isTruncated(r.FinishReason)
+}
+
+// isTruncated reports whether a finish reason means "the answer was cut off".
+func isTruncated(finishReason string) bool {
+	switch finishReason {
+	case "length", "max_tokens", "MAX_TOKENS":
+		return true
+	}
+	return false
 }
 
 // ModelAdapter decouples the agent orchestration logic from any specific inference provider.

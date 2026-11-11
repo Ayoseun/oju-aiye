@@ -57,12 +57,15 @@ func main() {
 		switch mCfg.Adapter {
 		case "openai-compatible", "ollama":
 			adapter := models.NewOpenAICompatibleAdapter(models.OpenAICompatibleConfig{
-				BaseURL:      mCfg.BaseURL,
-				APIKey:       mCfg.GetAPIKey(),
-				ModelID:      mCfg.ModelID,
-				Timeout:      mCfg.Timeout(),
-				MaxRetries:   cfg.Research.MaxAgentRetries,
-				ProviderName: mCfg.Adapter,
+				BaseURL:         mCfg.BaseURL,
+				APIKey:          mCfg.GetAPIKey(),
+				ModelID:         mCfg.ModelID,
+				Timeout:         mCfg.Timeout(),
+				MaxRetries:      cfg.Research.MaxAgentRetries,
+				ProviderName:    mCfg.Adapter,
+				RetryBaseDelay:  cfg.Research.AgentRetryBase(),
+				RetryMaxDelay:   cfg.Research.AgentRetryMax(),
+				ReasoningEffort: mCfg.ReasoningEffort,
 			})
 			reg.Register(role, adapter)
 			health.Register("model:"+role, adapter)

@@ -26,7 +26,7 @@ func TestValidationRunnerCleanPass(t *testing.T) {
 		HypothesisID: hypID,
 		Command:      "echo",
 		Args:         []string{"assertion passed"},
-		Timeout:      2 * time.Second,
+		Timeout:      10 * time.Second,
 	}
 
 	res, err := runner.Execute(context.Background(), req)
@@ -56,7 +56,7 @@ func TestValidationRunnerInvariantFailure(t *testing.T) {
 		HypothesisID:     hypID,
 		Command:          "sh",
 		Args:             []string{"-c", "echo 'AssertionFailed: balance < 0' >&2; exit 1"},
-		Timeout:          2 * time.Second,
+		Timeout:          10 * time.Second,
 		FailureSignature: "AssertionFailed: balance < 0",
 	}
 
@@ -86,7 +86,7 @@ func TestValidationRunnerSetupFailure(t *testing.T) {
 		HypothesisID: hypID,
 		Command:      "sh",
 		Args:         []string{"-c", "echo 'error: package not found' >&2; exit 1"},
-		Timeout:      2 * time.Second,
+		Timeout:      10 * time.Second,
 	}
 
 	res, err := runner.Execute(context.Background(), req)

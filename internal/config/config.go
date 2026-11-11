@@ -27,10 +27,31 @@ type ResearchConfig struct {
 	MaxAgentRetries                 int  `yaml:"max_agent_retries"`
 	JobTimeoutSeconds               int  `yaml:"job_timeout_seconds"`
 	RequireReviewerBeforeValidation bool `yaml:"require_reviewer_before_validation"`
+	// AgentRetryBaseSeconds is the wait before the first retry of a rate-limited model call.
+	// Free and shared endpoints rate-limit hard, so raise it when pointing at one.
+	AgentRetryBaseSeconds int `yaml:"agent_retry_base_seconds"`
+	// AgentRetryMaxSeconds caps a single wait between two model attempts.
+	AgentRetryMaxSeconds int `yaml:"agent_retry_max_seconds"`
 }
 
 func (r ResearchConfig) JobTimeout() time.Duration {
 	return time.Duration(r.JobTimeoutSeconds) * time.Second
+}
+
+// AgentRetryBase is the delay before the first retry of a model call.
+func (r ResearchConfig) AgentRetryBase() time.Duration {
+	if r.AgentRetryBaseSeconds <= 0 {
+		return 2 * time.Second
+	}
+	return time.Duration(r.AgentRetryBaseSeconds) * time.Second
+}
+
+// AgentRetryMax is the longest single wait between two model attempts.
+func (r ResearchConfig) AgentRetryMax() time.Duration {
+	if r.AgentRetryMaxSeconds <= 0 {
+		return 60 * time.Second
+	}
+	return time.Duration(r.AgentRetryMaxSeconds) * time.Second
 }
 
 // ValidationConfig defines resource constraints for the isolated test runner.
@@ -62,6 +83,11 @@ type ModelRoleConfig struct {
 	Remote bool `yaml:"remote"`
 	// AllowInsecureHTTP permits plain http to a non-local host. Only for private, trusted networks.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+	// ReasoningEffort is passed to providers that support it ("none", "low", "medium", ...).
+	// Leave it empty for endpoints that reject the parameter. Set it to "none" when the model
+	// is a reasoning model and the endpoint's output budget is small: reasoning tokens are
+	// taken from the same budget as the answer.
+	ReasoningEffort string `yaml:"reasoning_effort"`
 }
 
 func (m ModelRoleConfig) Timeout() time.Duration {
@@ -156,6 +182,8 @@ func Load(path string) (*Config, error) {
 			MaxAgentRetries:                 2,
 			JobTimeoutSeconds:               1800,
 			RequireReviewerBeforeValidation: true,
+			AgentRetryBaseSeconds:           2,
+			AgentRetryMaxSeconds:            60,
 		},
 		Validation: ValidationConfig{
 			Enabled:           true,
