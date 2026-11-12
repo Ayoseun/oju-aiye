@@ -174,7 +174,7 @@ func TestFileContextCentresOnTheCitedLines(t *testing.T) {
 	}
 	root := writeTree(t, map[string]string{"src/Big.sol": strings.Join(lines, "\n")})
 
-	ctx := FileContext(root, "src/Big.sol", 100, 110, 4000)
+	ctx := FileContext(root, "src/Big.sol", 100, 110, "", 4000)
 	if !strings.Contains(ctx, "100 |") {
 		t.Errorf("expected the cited range in the excerpt, got:\n%s", ctx[:200])
 	}
@@ -186,11 +186,48 @@ func TestFileContextCentresOnTheCitedLines(t *testing.T) {
 func TestFileContextFallsBackToTheFileHeadWhenTheRangeIsUnusable(t *testing.T) {
 	root := writeTree(t, map[string]string{"src/Big.sol": strings.Repeat("y", 5000)})
 
-	ctx := FileContext(root, "src/Big.sol", 0, 0, 1000)
+	ctx := FileContext(root, "src/Big.sol", 0, 0, "", 1000)
 	if ctx == "" {
 		t.Fatal("expected some context")
 	}
 	if !strings.Contains(ctx, "truncated") {
 		t.Error("expected the excerpt to be marked as truncated")
+	}
+}
+
+// The symbol is the reliable anchor: a model that cannot count lines cites a line that
+// does not hold the function it means.
+func TestFileContextForSymbolFindsTheDefinition(t *testing.T) {
+	source := `package fileserve
+
+import "os"
+
+// Read returns the contents of name.
+func Read(root, name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func Unrelated(a int) int {
+	return a
+}
+`
+	root := writeTree(t, map[string]string{"src/token.sol": source})
+
+	// The cited line is wrong on purpose: the symbol is right.
+	ctx := FileContextForSymbol(root, "src/token.sol", 2, 3, "Read", 4000)
+	if !strings.Contains(ctx, "func Read(root, name string)") {
+		t.Errorf("expected the definition of Read in the excerpt, got:\n%s", ctx)
+	}
+	if strings.Contains(ctx, "func Unrelated") {
+		t.Error("expected the excerpt to stop at the end of the function")
+	}
+}
+
+func TestFileContextForSymbolFallsBackToTheCitedRange(t *testing.T) {
+	root := writeTree(t, map[string]string{"src/token.sol": "line one\nline two\nline three\n"})
+
+	ctx := FileContextForSymbol(root, "src/token.sol", 2, 3, "NoSuchSymbol", 4000)
+	if !strings.Contains(ctx, "line two") {
+		t.Errorf("expected the cited range in the excerpt, got:\n%s", ctx)
 	}
 }

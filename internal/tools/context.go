@@ -298,10 +298,14 @@ func ResolveScopedPath(files []string, reference string) string {
 	return ""
 }
 
-// FileContext returns the source of one file for an agent that has to reason about it. When
-// the candidate cites a line range, the range is centred in the excerpt so the agent sees
-// the code around it.
-func FileContext(root, relPath string, lineStart, lineEnd, maxBytes int) string {
+// FileContext returns the source of one file for an agent that has to reason about it.
+//
+// The candidate names a symbol and a line range, but the line range is often a guess: a
+// model that cannot count lines will say "line 115" for a function that is somewhere else
+// in the file. The symbol is the reliable anchor, so the excerpt is centred on the
+// definition of the symbol when it can be found, and on the cited lines only as a
+// fallback.
+func FileContext(root, relPath string, lineStart, lineEnd int, symbol string, maxBytes int) string {
 	if maxBytes <= 0 {
 		maxBytes = 40000
 	}
@@ -327,6 +331,102 @@ func FileContext(root, relPath string, lineStart, lineEnd, maxBytes int) string 
 		return content[:maxBytes] + "\n...[truncated]...\n"
 	}
 	return content
+}
+
+// FileContextForSymbol returns the source around the definition of a symbol, falling back
+// to a cited line range when the symbol cannot be located.
+func FileContextForSymbol(root, relPath string, lineStart, lineEnd int, symbol string, maxBytes int) string {
+	if maxBytes <= 0 {
+		maxBytes = 40000
+	}
+	if symbol == "" {
+		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+	}
+
+	full := filepath.Join(root, filepath.FromSlash(relPath))
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+
+	start, end, ok := findDefinition(lines, symbol)
+	if !ok {
+		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+	}
+
+	// The definition and its body, with room around it.
+	from := start
+	to := end
+	if from > 0 {
+		from--
+	}
+	if to < len(lines)-1 {
+		to++
+	}
+	window := windowAround(lines, from+1, to+1, maxBytes)
+	if window == "" {
+		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+	}
+	return fmt.Sprintf("(excerpt of %s around %s)\n%s", relPath, symbol, window)
+}
+
+// findDefinition locates a symbol's definition in a file and returns the line range of
+// its body. It understands the shapes a definition takes in the languages the platform
+// audits: a function, contract, modifier, event or error declaration.
+func findDefinition(lines []string, symbol string) (int, int, bool) {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return 0, 0, false
+	}
+	// A model sometimes writes the symbol with its parameter list.
+	if idx := strings.Index(symbol, "("); idx > 0 {
+		symbol = strings.TrimSpace(symbol[:idx])
+	}
+	if symbol == "" {
+		return 0, 0, false
+	}
+
+	keywords := []string{"function ", "func ", "fn ", "contract ", "modifier ", "event ", "error ", "struct ", "interface ", "library "}
+	for i, line := range lines {
+		if !strings.Contains(line, symbol) {
+			continue
+		}
+		matched := false
+		for _, kw := range keywords {
+			if strings.Contains(line, kw) && strings.Index(line, kw) < strings.Index(line, symbol) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		// The body ends where the braces balance again.
+		depth := 0
+		opened := false
+		for j := i; j < len(lines); j++ {
+			for _, r := range lines[j] {
+				switch r {
+				case '{':
+					depth++
+					opened = true
+				case '}':
+					depth--
+				}
+			}
+			if opened && depth <= 0 {
+				return i, j, true
+			}
+			if !opened && j > i {
+				// A declaration without a body: the definition is that line.
+				return i, i, true
+			}
+		}
+		return i, i, true
+	}
+	return 0, 0, false
 }
 
 // windowAround returns the excerpt of lines that contains the cited range, growing the
