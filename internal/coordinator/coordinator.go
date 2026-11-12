@@ -568,7 +568,7 @@ func (c *Coordinator) candidateContext(job *domain.ResearchJob, files []string, 
 	if rel == "" {
 		rel = cand.RepositoryPath
 	}
-	ctx := tools.FileContextForSymbol(job.RepositoryRef, rel, cand.LineStart, cand.LineEnd, cand.Symbol, c.cfg.Research.AgentContextBytes)
+	ctx := tools.FileContextForSymbolAnywhere(job.RepositoryRef, rel, cand.LineStart, cand.LineEnd, cand.Symbol, c.cfg.Research.AgentContextBytes, files)
 	if ctx == "" {
 		return fmt.Sprintf("The source of %s could not be read.", rel)
 	}

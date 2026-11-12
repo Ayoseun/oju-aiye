@@ -337,6 +337,47 @@ func FileContext(root, relPath string, lineStart, lineEnd int, symbol string, ma
 	return content
 }
 
+// FileContextForSymbolAnywhere returns the source around the definition of a symbol. The
+// file the candidate names is tried first; when the symbol is not there, the other files
+// in scope are searched.
+//
+// The path a model gives is less reliable than the symbol it names: a function that a
+// reader would call "CfdEngine._applyOpen" may live in a library the reader never had to
+// open. Looking the symbol up across the scope turns a hypothesis that could have been
+// judged into one that cannot be judged at all.
+func FileContextForSymbolAnywhere(root, relPath string, lineStart, lineEnd int, symbol string, maxBytes int, scopedFiles []string) string {
+	if symbol == "" {
+		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+	}
+
+	if ctx := FileContextForSymbol(root, relPath, lineStart, lineEnd, symbol, maxBytes); ctx != "" {
+		if !strings.Contains(ctx, "was not found in it") {
+			return ctx
+		}
+	}
+
+	for _, candidate := range scopedFiles {
+		if candidate == relPath {
+			continue
+		}
+		full := filepath.Join(root, filepath.FromSlash(candidate))
+		data, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		if _, _, ok := findDefinition(lines, symbol); !ok {
+			continue
+		}
+		ctx := FileContextForSymbol(root, candidate, lineStart, lineEnd, symbol, maxBytes)
+		if ctx != "" {
+			return ctx
+		}
+	}
+
+	return FileContextForSymbol(root, relPath, lineStart, lineEnd, symbol, maxBytes)
+}
+
 // FileContextForSymbol returns the source around the definition of a symbol. When the
 // symbol cannot be found, the whole file is returned rather than a window around the
 // cited lines: those lines are the model's guess, and a window around a guess shows the

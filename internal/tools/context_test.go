@@ -267,3 +267,21 @@ func TestFileContextForSymbolFallsBackToTheWholeFile(t *testing.T) {
 		t.Error("expected the excerpt to say the symbol was not found")
 	}
 }
+
+// A model names the file a reader would expect, but the function lives in a library.
+// The symbol is what matters, so it is looked up across the scope.
+func TestFileContextForSymbolAnywhereFindsTheFunctionInAnotherFile(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"src/CfdEngine.sol":         "contract CfdEngine {\n    uint256 public x;\n}\n",
+		"src/libraries/RiskLib.sol": "library RiskLib {\n    function _applyOpen(uint256 a) internal pure returns (uint256) {\n        return a + 1;\n    }\n}\n",
+	})
+	scoped := []string{"src/CfdEngine.sol", "src/libraries/RiskLib.sol"}
+
+	ctx := FileContextForSymbolAnywhere(root, "src/CfdEngine.sol", 10, 20, "_applyOpen", 4000, scoped)
+	if !strings.Contains(ctx, "function _applyOpen") {
+		t.Errorf("expected the definition to be found in the other file, got:\n%s", ctx)
+	}
+	if !strings.Contains(ctx, "RiskLib.sol") {
+		t.Errorf("expected the excerpt to name the file it came from, got:\n%s", ctx[:200])
+	}
+}
