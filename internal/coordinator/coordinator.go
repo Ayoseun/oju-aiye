@@ -109,41 +109,61 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 			return err
 		}
 
-		scoutTask := &domain.AgentTask{
-			ID:           uuid.New(),
-			JobID:        jobID,
-			Role:         "scout",
-			Status:       "running",
-			ModelID:      c.cfg.Models["scout"].ModelID,
-			AttemptCount: 1,
+		// A shared endpoint is flaky: the same batch can come back with a usable
+		// answer, with nothing, or with a truncated one. A batch that fails is asked
+		// again before it is written off, because a batch is a large part of the
+		// target and losing it silently would leave a hole in the coverage.
+		var chunkCands []*domain.Candidate
+		var batchErr error
+		attempts := c.cfg.Research.MaxBatchRetries + 1
+		if attempts < 1 {
+			attempts = 1
 		}
-		_ = c.store.CreateTask(ctx, scoutTask)
 
-		chunkCands, _, err := c.scout.DiscoverCandidates(ctx, job.RepositoryRef, agents.SourceChunk{
-			Index: chunk.Index,
-			Total: chunk.Total,
-			Files: chunk.Files,
-			Text:  chunk.Text,
-		}, jc)
-		now := time.Now().UTC()
-		scoutTask.FinishedAt = &now
-		if err != nil {
-			scoutTask.Status = "failed"
-			scoutTask.ErrorSummary = err.Error()
+		for attempt := 0; attempt < attempts; attempt++ {
+			scoutTask := &domain.AgentTask{
+				ID:           uuid.New(),
+				JobID:        jobID,
+				Role:         "scout",
+				Status:       "running",
+				ModelID:      c.cfg.Models["scout"].ModelID,
+				AttemptCount: attempt + 1,
+			}
+			_ = c.store.CreateTask(ctx, scoutTask)
+
+			chunkCands, _, batchErr = c.scout.DiscoverCandidates(ctx, job.RepositoryRef, agents.SourceChunk{
+				Index: chunk.Index,
+				Total: chunk.Total,
+				Files: chunk.Files,
+				Text:  chunk.Text,
+			}, jc)
+
+			now := time.Now().UTC()
+			scoutTask.FinishedAt = &now
+			if batchErr != nil {
+				scoutTask.Status = "failed"
+				scoutTask.ErrorSummary = batchErr.Error()
+				_ = c.store.UpdateTask(ctx, scoutTask)
+				continue
+			}
+
+			scoutTask.Status = "completed"
 			_ = c.store.UpdateTask(ctx, scoutTask)
+			batchErr = nil
+			break
+		}
+
+		if batchErr != nil {
 			// One unreadable batch must not sink the audit: keep going and say so
 			// at the end.
 			scoutFailures++
 			telemetry.Error(fmt.Sprintf("Scout failed on batch %d of %d", chunk.Index, chunk.Total), "SCOUT_BATCH_FAILED", map[string]interface{}{
 				"job_id": jobID.String(),
 				"batch":  chunk.Index,
-				"error":  err.Error(),
+				"error":  batchErr.Error(),
 			})
 			continue
 		}
-
-		scoutTask.Status = "completed"
-		_ = c.store.UpdateTask(ctx, scoutTask)
 
 		for _, cand := range chunkCands {
 			key := fmt.Sprintf("%s:%s:%d", cand.RepositoryPath, cand.Symbol, cand.LineStart)
@@ -157,8 +177,8 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 	}
 
 	telemetry.Info(fmt.Sprintf("Scout discovered %d candidates in %d batches", len(candidates), len(chunks)), map[string]interface{}{
-		"job_id": jobID.String(),
-		"count":  len(candidates),
+		"job_id":  jobID.String(),
+		"count":   len(candidates),
 		"batches": len(chunks),
 	})
 

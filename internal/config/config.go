@@ -41,6 +41,10 @@ type ResearchConfig struct {
 	// AgentContextBytes is how much of the candidate's own file the Investigator and the
 	// Reviewer are shown.
 	AgentContextBytes int `yaml:"agent_context_bytes"`
+	// MaxBatchRetries is how many times a Scout batch is asked again when the model
+	// returns something unusable. A shared endpoint is flaky, and a batch is a large
+	// part of the target: losing it silently leaves a hole in the coverage.
+	MaxBatchRetries int `yaml:"max_batch_retries"`
 }
 
 func (r ResearchConfig) JobTimeout() time.Duration {
@@ -196,6 +200,7 @@ func Load(path string) (*Config, error) {
 			ScoutChunkBytes:                 60000,
 			MaxFileBytes:                    24000,
 			AgentContextBytes:               40000,
+			MaxBatchRetries:                 2,
 		},
 		Validation: ValidationConfig{
 			Enabled:           true,

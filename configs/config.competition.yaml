@@ -17,6 +17,7 @@ research:
   max_hypotheses_per_job: 8             # bounded: each hypothesis costs two more model calls
   max_iterations_per_hypothesis: 2      # one revision round at most
   max_agent_retries: 8                 # a shared free endpoint rate-limits hard
+  max_batch_retries: 2                 # a flaky batch is asked again before it is lost
   agent_retry_base_seconds: 15
   agent_retry_max_seconds: 90
   scout_chunk_bytes: 80000             # one model call per batch of source

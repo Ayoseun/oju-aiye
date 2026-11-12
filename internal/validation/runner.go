@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -226,10 +227,6 @@ func sandboxEnv(sandboxDir string) []string {
 		"PATH", "LANG", "LC_ALL", "TERM",
 		"GOROOT", "GOPATH", "GOCACHE", "GOMODCACHE",
 		"CARGO_HOME", "RUSTUP_HOME", "FOUNDRY_DIR", "NODE_PATH",
-		// Where Foundry keeps the solc versions it installed. HOME points at the
-		// sandbox, so without this the compiler would look in a place that does not
-		// exist and try to download one.
-		"SVM_HOME",
 		// A shared Foundry cache and artifact directory. Compiling a large Solidity
 		// project takes minutes; when the cache is warm, only the files a test adds
 		// have to be compiled.
@@ -240,7 +237,34 @@ func sandboxEnv(sandboxDir string) []string {
 			env = append(env, k+"="+v)
 		}
 	}
+	// Where Foundry keeps the solc versions it installed. HOME points at the sandbox,
+	// so without this the compiler would look in a place that does not exist and try
+	// to download one.
+	if v, ok := os.LookupEnv("SVM_HOME"); ok && v != "" {
+		env = append(env, "SVM_HOME="+v)
+	} else if dir := defaultSVMHome(); dir != "" {
+		env = append(env, "SVM_HOME="+dir)
+	}
 	return env
+}
+
+// defaultSVMHome finds the directory where the solc versions are installed. Foundry keeps
+// them in ~/.svm on Linux and in "~/Library/Application Support/svm" on macOS.
+func defaultSVMHome() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return ""
+	}
+	candidates := []string{filepath.Join(home, ".svm")}
+	if runtime.GOOS == "darwin" {
+		candidates = append([]string{filepath.Join(home, "Library", "Application Support", "svm")}, candidates...)
+	}
+	for _, dir := range candidates {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }
 
 var (

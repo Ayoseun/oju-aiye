@@ -61,18 +61,32 @@ func (s *ScoutAgent) DiscoverCandidates(ctx context.Context, repoRef string, chu
 		return nil, resp, err
 	}
 
+	// A batch holds one file more often than not, so a candidate that forgot the path
+	// can be pointed at the file it was read from.
+	onlyFile := ""
+	if len(chunk.Files) == 1 {
+		onlyFile = chunk.Files[0]
+	}
+
 	// One malformed candidate must not throw away the rest of the batch: a model that
 	// gets one field wrong on one finding would otherwise lose every finding in the
 	// batch. Candidates that do not satisfy the schema are skipped and counted.
 	var candidates []*domain.Candidate
 	var rejected int
+	var firstRejection string
+	var firstRejectedRaw string
 	for _, rawItem := range rawItems {
-		if err := schema.Validate(schema.KindCandidate, rawItem); err != nil {
+		repaired := repairCandidate(rawItem, onlyFile)
+		if err := schema.Validate(schema.KindCandidate, repaired); err != nil {
 			rejected++
+			if firstRejection == "" {
+				firstRejection = err.Error()
+				firstRejectedRaw = string(rawItem)
+			}
 			continue
 		}
 		var cand domain.Candidate
-		if err := json.Unmarshal(rawItem, &cand); err != nil {
+		if err := json.Unmarshal(repaired, &cand); err != nil {
 			rejected++
 			continue
 		}
@@ -83,10 +97,85 @@ func (s *ScoutAgent) DiscoverCandidates(ctx context.Context, repoRef string, chu
 	}
 
 	if len(candidates) == 0 && rejected > 0 {
-		return nil, resp, fmt.Errorf("no candidate in this batch satisfied the schema (%d rejected)", rejected)
+		return nil, resp, fmt.Errorf("no candidate in this batch satisfied the schema (%d rejected). First error: %s (content: %s)",
+			rejected, firstRejection, truncate(firstRejectedRaw, 300))
 	}
 
 	return candidates, resp, nil
+}
+
+// repairCandidate fixes the fields a model commonly leaves empty: a missing path, a line
+// number of zero, a missing list. The fields that carry the substance of a candidate
+// (the rationale and the class) stay required.
+func repairCandidate(raw json.RawMessage, onlyFile string) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+
+	changed := false
+	setIfEmpty := func(key, value string) {
+		current, ok := obj[key]
+		if !ok {
+			return
+		}
+		var s string
+		if err := json.Unmarshal(current, &s); err != nil || s != "" {
+			return
+		}
+		if encoded, err := json.Marshal(value); err == nil {
+			obj[key] = encoded
+			changed = true
+		}
+	}
+	setIfEmpty("repository_path", onlyFile)
+	setIfEmpty("symbol", "unknown")
+
+	// Fields the model regularly leaves out entirely.
+	for key, value := range map[string]string{
+		"schema_version": "1.0",
+		"candidate_id":   uuid.NewString(),
+	} {
+		if _, ok := obj[key]; !ok {
+			if encoded, err := json.Marshal(value); err == nil {
+				obj[key] = encoded
+				changed = true
+			}
+		}
+	}
+	if _, ok := obj["confidence"]; !ok {
+		obj["confidence"] = json.RawMessage("0.5")
+		changed = true
+	}
+
+	// A line number of zero is not a line.
+	for _, key := range []string{"line_start", "line_end"} {
+		current, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var n int
+		if err := json.Unmarshal(current, &n); err == nil && n < 1 {
+			obj[key] = json.RawMessage("1")
+			changed = true
+		}
+	}
+
+	for _, key := range []string{"observed_facts", "assumptions", "suggested_next_steps"} {
+		if _, ok := obj[key]; !ok {
+			obj[key] = json.RawMessage("[]")
+			changed = true
+		}
+	}
+
+	if !changed {
+		return raw
+	}
+	repaired, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return repaired
 }
 
 // candidateItems pulls the candidate objects out of the model's answer, whatever shape it
