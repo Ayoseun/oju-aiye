@@ -337,8 +337,10 @@ func FileContext(root, relPath string, lineStart, lineEnd int, symbol string, ma
 	return content
 }
 
-// FileContextForSymbol returns the source around the definition of a symbol, falling back
-// to a cited line range when the symbol cannot be located.
+// FileContextForSymbol returns the source around the definition of a symbol. When the
+// symbol cannot be found, the whole file is returned rather than a window around the
+// cited lines: those lines are the model's guess, and a window around a guess shows the
+// Reviewer code that has nothing to do with the claim.
 func FileContextForSymbol(root, relPath string, lineStart, lineEnd int, symbol string, maxBytes int) string {
 	if maxBytes <= 0 {
 		maxBytes = 40000
@@ -356,7 +358,7 @@ func FileContextForSymbol(root, relPath string, lineStart, lineEnd int, symbol s
 
 	start, end, ok := findDefinition(lines, symbol)
 	if !ok {
-		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+		return wholeFile(root, relPath, maxBytes, symbol)
 	}
 
 	// The definition and its body, with room around it.
@@ -370,14 +372,42 @@ func FileContextForSymbol(root, relPath string, lineStart, lineEnd int, symbol s
 	}
 	window := windowAround(lines, from+1, to+1, maxBytes)
 	if window == "" {
-		return FileContext(root, relPath, lineStart, lineEnd, "", maxBytes)
+		return wholeFile(root, relPath, maxBytes, symbol)
 	}
 	return fmt.Sprintf("(excerpt of %s around %s)\n%s", relPath, symbol, window)
+}
+
+// wholeFile returns the file, with its line numbers, when the symbol cannot be located.
+// The line numbers are kept so that the cited range can still be checked against it.
+func wholeFile(root, relPath string, maxBytes int, symbol string) string {
+	full := filepath.Join(root, filepath.FromSlash(relPath))
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+
+	var sb strings.Builder
+	if symbol != "" {
+		fmt.Fprintf(&sb, "(whole file %s: %s was not found in it; the cited line numbers below are the model's own claim)\n", relPath, symbol)
+	}
+	for i, line := range lines {
+		fmt.Fprintf(&sb, "%4d | %s\n", i+1, line)
+		if sb.Len() >= maxBytes {
+			sb.WriteString("...[truncated]...\n")
+			break
+		}
+	}
+	return sb.String()
 }
 
 // findDefinition locates a symbol's definition in a file and returns the line range of
 // its body. It understands the shapes a definition takes in the languages the platform
 // audits: a function, contract, modifier, event or error declaration.
+//
+// The symbol a model gives is often close to, but not exactly, the name in the source:
+// "creditBounty" for "_creditBounty", or a different case. Those are tried too, because
+// a missed symbol means the agent is shown the wrong code.
 func findDefinition(lines []string, symbol string) (int, int, bool) {
 	symbol = strings.TrimSpace(symbol)
 	if symbol == "" {
@@ -391,9 +421,35 @@ func findDefinition(lines []string, symbol string) (int, int, bool) {
 		return 0, 0, false
 	}
 
+	for _, variant := range symbolVariants(symbol) {
+		if start, end, ok := findDefinitionExact(lines, variant); ok {
+			return start, end, true
+		}
+	}
+	return 0, 0, false
+}
+
+// symbolVariants lists the forms of a symbol to look for.
+func symbolVariants(symbol string) []string {
+	variants := []string{symbol}
+	if trimmed := strings.TrimPrefix(symbol, "_"); trimmed != symbol && trimmed != "" {
+		variants = append(variants, trimmed)
+	}
+	for _, v := range variants {
+		if lower := strings.ToLower(v); lower != v {
+			variants = append(variants, lower)
+		}
+	}
+	return variants
+}
+
+// findDefinitionExact looks for one exact spelling of a symbol.
+func findDefinitionExact(lines []string, symbol string) (int, int, bool) {
 	keywords := []string{"function ", "func ", "fn ", "contract ", "modifier ", "event ", "error ", "struct ", "interface ", "library "}
+	lowerSymbol := strings.ToLower(symbol)
+
 	for i, line := range lines {
-		if !strings.Contains(line, symbol) {
+		if !strings.Contains(strings.ToLower(line), lowerSymbol) {
 			continue
 		}
 		matched := false

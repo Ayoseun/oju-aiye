@@ -231,3 +231,39 @@ func TestFileContextForSymbolFallsBackToTheCitedRange(t *testing.T) {
 		t.Errorf("expected the cited range in the excerpt, got:\n%s", ctx)
 	}
 }
+
+// A model writes the symbol without the leading underscore the source has. Missing it
+// means the agent is shown the wrong code.
+func TestFileContextForSymbolTriesTheUnderscoredSpelling(t *testing.T) {
+	source := `package fileserve
+
+func _internalHelper(a int) int {
+	return a + 1
+}
+
+func Public(a int) int {
+	return a
+}
+`
+	root := writeTree(t, map[string]string{"src/token.sol": source})
+
+	ctx := FileContextForSymbol(root, "src/token.sol", 1, 1, "internalHelper", 4000)
+	if !strings.Contains(ctx, "func _internalHelper") {
+		t.Errorf("expected the underscored definition to be found, got:\n%s", ctx)
+	}
+}
+
+// When the symbol is nowhere in the file, the whole file is shown: a window around the
+// model's guessed line number shows code that has nothing to do with the claim.
+func TestFileContextForSymbolFallsBackToTheWholeFile(t *testing.T) {
+	source := "package fileserve\n\nfunc Other() {}\n"
+	root := writeTree(t, map[string]string{"src/token.sol": source})
+
+	ctx := FileContextForSymbol(root, "src/token.sol", 2, 2, "Missing", 4000)
+	if !strings.Contains(ctx, "func Other") {
+		t.Errorf("expected the whole file, got:\n%s", ctx)
+	}
+	if !strings.Contains(ctx, "was not found") {
+		t.Error("expected the excerpt to say the symbol was not found")
+	}
+}
