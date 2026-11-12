@@ -41,7 +41,8 @@ func (r *ReviewerAgent) ReviewHypothesis(ctx context.Context, hyp *domain.Hypoth
 
 	jsonBytes, resp, err := CallAndValidateRepairing(ctx, r.Adapter, req, schema.KindReviewResult,
 		[]string{"supporting_points", "counterarguments", "missing_evidence", "falsification_tests"},
-		map[string]string{"schema_version": "1.0"})
+		map[string]string{"schema_version": "1.0"},
+		[]string{"review_id", "hypothesis_id"})
 	if err != nil {
 		return nil, resp, fmt.Errorf("reviewer evaluation failed: %w", err)
 	}

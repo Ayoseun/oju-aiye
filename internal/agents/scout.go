@@ -53,7 +53,7 @@ func (s *ScoutAgent) DiscoverCandidates(ctx context.Context, repoRef string, chu
 const scoutAttempts = 3
 
 func (s *ScoutAgent) discoverOnce(ctx context.Context, repoRef string, chunk SourceChunk, jc JobContext, attempt int) ([]*domain.Candidate, models.ModelResponse, error) {
-	promptInput := fmt.Sprintf("Repository: %s\n\nFiles in this batch (%d of %d):\n%s\nSource Code Context:\n%s\n\nIdentify potential security candidates in this batch as JSON, at most %d of them. Report only candidates whose code you can actually see above.\n\nAnswer with one JSON object of this exact shape:\n{\"schema_version\":\"1.0\",\"candidates\":[{\"candidate_id\":\"c1\",\"repository_path\":\"<file above>\",\"symbol\":\"<function>\",\"line_start\":<int>,\"line_end\":<int>,\"suspected_class\":\"CWE-<id>\",\"rationale\":\"<one sentence>\",\"observed_facts\":[\"<fact from the code>\"],\"assumptions\":[\"<assumption>\"],\"suggested_next_steps\":[\"<next step>\"],\"confidence\":<0.0-1.0>}]}\nIf the batch holds nothing worth reporting, answer {\"candidates\": []}.",
+	promptInput := fmt.Sprintf("Repository: %s\n\nFiles in this batch (%d of %d):\n%s\nSource Code Context:\n%s\n\nIdentify potential security candidates in this batch as JSON, at most %d of them. Report only candidates whose code you can actually see above.\n\nAnswer with one JSON object of this exact shape:\n{\"schema_version\":\"1.0\",\"candidates\":[{\"candidate_id\":\"c1\",\"repository_path\":\"<file above>\",\"symbol\":\"<function>\",\"line_start\":<int>,\"line_end\":<int>,\"suspected_class\":\"CWE-<id>\",\"rationale\":\"<one sentence>\",\"observed_facts\":[\"<fact from the code>\"],\"assumptions\":[\"<assumption>\"],\"suggested_next_steps\":[\"<next step>\"],\"confidence\":<0.0-1.0>}]}",
 		repoRef, chunk.Index, chunk.Total, chunk.fileList(), chunk.Text, maxCandidatesPerChunk)
 
 	if attempt > 0 {
@@ -162,16 +162,16 @@ func repairCandidate(raw json.RawMessage, onlyFile string) json.RawMessage {
 	setIfEmpty("symbol", "unknown")
 
 	// Fields the model regularly leaves out entirely.
-	for key, value := range map[string]string{
-		"schema_version": "1.0",
-		"candidate_id":   uuid.NewString(),
-	} {
-		if _, ok := obj[key]; !ok {
-			if encoded, err := json.Marshal(value); err == nil {
-				obj[key] = encoded
-				changed = true
-			}
+	if _, ok := obj["schema_version"]; !ok {
+		if encoded, err := json.Marshal("1.0"); err == nil {
+			obj["schema_version"] = encoded
+			changed = true
 		}
+	}
+	// The model writes "c1" where a UUID belongs. The schema accepts a string, but the
+	// domain type is uuid.UUID, and the finding is lost when the two disagree.
+	if ensureUUID(obj, "candidate_id") {
+		changed = true
 	}
 	if _, ok := obj["confidence"]; !ok {
 		obj["confidence"] = json.RawMessage("0.5")

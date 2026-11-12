@@ -42,7 +42,8 @@ func (inv *InvestigatorAgent) FormulateHypothesis(ctx context.Context, candidate
 
 	jsonBytes, resp, err := CallAndValidateRepairing(ctx, inv.Adapter, req, schema.KindHypothesis,
 		[]string{"preconditions", "attacker_controlled_inputs", "supporting_evidence_ids", "counterarguments", "validation_plan"},
-		map[string]string{"schema_version": "1.0", "status": "proposed"})
+		map[string]string{"schema_version": "1.0", "status": "proposed"},
+		[]string{"hypothesis_id", "candidate_id"})
 	if err != nil {
 		return nil, resp, fmt.Errorf("investigator analysis failed: %w", err)
 	}

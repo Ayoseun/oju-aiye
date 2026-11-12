@@ -155,3 +155,42 @@ func TestScoutAcceptsAnEmptyCandidateList(t *testing.T) {
 		t.Errorf("expected no candidates, got %d", len(cands))
 	}
 }
+
+// A model writes "c1" where a UUID belongs. The schema accepts a string, but the domain
+// type is uuid.UUID: without the repair the candidate passes validation and is then
+// lost when it cannot be unmarshalled.
+func TestScoutAcceptsAMadeUpIdentifier(t *testing.T) {
+	ctx := context.Background()
+	fake := models.NewFakeAdapter("test-scout")
+
+	fake.EnqueueResponse(`{"schema_version":"1.0","candidates":[{
+		"candidate_id":"c1",
+		"repository_path":"src/token.sol",
+		"symbol":"transfer",
+		"line_start":20,
+		"line_end":45,
+		"suspected_class":"CWE-284",
+		"rationale":"Missing authorization check",
+		"observed_facts":["No caller verification"],
+		"assumptions":[],
+		"suggested_next_steps":[],
+		"confidence":0.8
+	}]}`, 100, 50)
+
+	scout := NewScoutAgent(fake, "Scout instructions")
+	cands, _, err := scout.DiscoverCandidates(ctx, "local://repo", SourceChunk{
+		Index: 1, Total: 1, Files: []string{"src/token.sol"}, Text: "contract Token {}",
+	}, JobContext{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("expected the candidate to survive, got %d", len(cands))
+	}
+	if cands[0].CandidateID == uuid.Nil {
+		t.Error("expected a real UUID to have been generated")
+	}
+	if cands[0].Symbol != "transfer" {
+		t.Errorf("unexpected symbol %q", cands[0].Symbol)
+	}
+}

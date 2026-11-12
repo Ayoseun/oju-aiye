@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"vuln-research/internal/models"
 	"vuln-research/internal/schema"
 )
@@ -29,13 +30,13 @@ func ExtractJSON(raw string) string {
 
 // CallAndValidate issues a ModelRequest, sanitizes JSON, and validates against the specified schema kind.
 func CallAndValidate(ctx context.Context, adapter models.ModelAdapter, req models.ModelRequest, kind schema.SchemaKind) ([]byte, models.ModelResponse, error) {
-	return CallAndValidateRepairing(ctx, adapter, req, kind, nil, nil)
+	return CallAndValidateRepairing(ctx, adapter, req, kind, nil, nil, nil)
 }
 
 // CallAndValidateRepairing is CallAndValidate with structural repair: missing boilerplate
 // fields are filled in before the schema is applied, so a finding is not lost because the
 // model left an empty list out.
-func CallAndValidateRepairing(ctx context.Context, adapter models.ModelAdapter, req models.ModelRequest, kind schema.SchemaKind, arrays []string, strings map[string]string) ([]byte, models.ModelResponse, error) {
+func CallAndValidateRepairing(ctx context.Context, adapter models.ModelAdapter, req models.ModelRequest, kind schema.SchemaKind, arrays []string, strings map[string]string, uuids []string) ([]byte, models.ModelResponse, error) {
 	resp, err := adapter.Generate(ctx, req)
 	if err != nil {
 		return nil, resp, fmt.Errorf("model generation failed: %w", err)
@@ -44,8 +45,8 @@ func CallAndValidateRepairing(ctx context.Context, adapter models.ModelAdapter, 
 	cleanJSON := ExtractJSON(resp.Content)
 	jsonBytes := []byte(cleanJSON)
 
-	if err := schema.Validate(kind, jsonBytes); err != nil && len(arrays)+len(strings) > 0 {
-		repaired, repairErr := repair(jsonBytes, arrays, strings)
+	if err := schema.Validate(kind, jsonBytes); err != nil && len(arrays)+len(strings)+len(uuids) > 0 {
+		repaired, repairErr := repair(jsonBytes, arrays, strings, uuids)
 		if repairErr == nil {
 			if repairedErr := schema.Validate(kind, repaired); repairedErr == nil {
 				return repaired, resp, nil
@@ -73,11 +74,32 @@ func UnmarshalJSON(jsonBytes []byte, dest interface{}) error {
 	return json.Unmarshal(jsonBytes, dest)
 }
 
+// ensureUUID replaces an identifier the model made up with a real one. The schemas only
+// require a string, but the domain types are uuid.UUID: "c1" passes the schema and then
+// fails to unmarshal, and the finding is lost.
+func ensureUUID(obj map[string]json.RawMessage, key string) bool {
+	current, ok := obj[key]
+	if ok {
+		var s string
+		if err := json.Unmarshal(current, &s); err == nil {
+			if _, err := uuid.Parse(s); err == nil {
+				return false
+			}
+		}
+	}
+	encoded, err := json.Marshal(uuid.NewString())
+	if err != nil {
+		return false
+	}
+	obj[key] = encoded
+	return true
+}
+
 // repair fills in the structural fields a model tends to leave out, so that a finding is
 // not thrown away over an empty list. The fields that carry the substance of a finding
 // (the invariant, the expected failure, the impact, the validation plan) stay required:
 // a hypothesis without them is not a hypothesis.
-func repair(jsonBytes []byte, arrays []string, strings map[string]string) ([]byte, error) {
+func repair(jsonBytes []byte, arrays []string, strings map[string]string, uuids []string) ([]byte, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(jsonBytes, &obj); err != nil {
 		return nil, err
@@ -98,6 +120,9 @@ func repair(jsonBytes []byte, arrays []string, strings map[string]string) ([]byt
 			return nil, err
 		}
 		obj[key] = encoded
+	}
+	for _, key := range uuids {
+		ensureUUID(obj, key)
 	}
 
 	return json.Marshal(obj)
