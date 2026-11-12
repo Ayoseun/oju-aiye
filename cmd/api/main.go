@@ -208,6 +208,12 @@ func main() {
 				}()
 
 				_ = coord.RunJob(ctx, jID)
+
+				// The job state is in memory. Save the findings of a finished job to
+				// disk, so a restart does not throw them away.
+				if final, err := s.GetJob(ctx, jID); err == nil && state.IsTerminal(final.Status) {
+					writeReportToDisk(s, cfg, jID)
+				}
 			}(jobID, req.RepositoryRef)
 
 			w.WriteHeader(http.StatusCreated)
@@ -329,56 +335,10 @@ func main() {
 				return
 			}
 
-			cands, _ := s.ListCandidates(r.Context(), jobID)
-			hyps, _ := s.ListHypotheses(r.Context(), jobID)
-
-			var confirmed, refuted, inconclusive []reports.FindingDetail
-			for _, h := range hyps {
-				revs, _ := s.ListReviews(r.Context(), h.HypothesisID)
-				vals, _ := s.ListValidationRuns(r.Context(), h.HypothesisID)
-
-				detail := reports.FindingDetail{
-					HypothesisID:      h.HypothesisID.String(),
-					Title:             h.Title,
-					Status:            h.Status,
-					Weakness:          h.Weakness,
-					AffectedLocations: h.AffectedLocations,
-					SecurityInvariant: h.SecurityInvariant,
-					Impact:            h.Impact,
-					ExpectedFailure:   h.ExpectedFailure,
-					FailureSignature:  h.FailureSignature,
-					ValidationPlan:    h.ValidationPlan,
-					Counterarguments:  h.Counterarguments,
-					Reviews:           revs,
-					Validations:       vals,
-				}
-
-				switch h.Status {
-				case domain.HypothesisConfirmed:
-					confirmed = append(confirmed, detail)
-				case domain.HypothesisRefuted:
-					refuted = append(refuted, detail)
-				default:
-					inconclusive = append(inconclusive, detail)
-				}
-			}
-
-			rep := &reports.ResearchReport{
-				JobID:              job.ID.String(),
-				RepositoryRef:      job.RepositoryRef,
-				RepositoryRevision: job.RepositoryRevision,
-				JobStatus:          job.Status,
-				GeneratedAt:        time.Now().UTC(),
-				Summary: reports.ReportSummary{
-					TotalCandidates: len(cands),
-					TotalHypotheses: len(hyps),
-					Confirmed:       len(confirmed),
-					Refuted:         len(refuted),
-					Inconclusive:    len(inconclusive),
-				},
-				ConfirmedFindings:    confirmed,
-				RefutedFindings:      refuted,
-				InconclusiveFindings: inconclusive,
+			rep, err := buildReport(s, jobID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
+				return
 			}
 
 			if r.URL.Query().Get("format") == "markdown" {
@@ -420,6 +380,115 @@ func main() {
 		telemetry.Error("Server shutdown failed", "SHUTDOWN_ERROR", map[string]interface{}{"error": err.Error()})
 	}
 	telemetry.Info("Server stopped cleanly.", nil)
+}
+
+// buildReport assembles the report of a job from the store: every hypothesis with its
+// reviews and validation runs, grouped by verification status.
+func buildReport(s store.Store, jobID uuid.UUID) (*reports.ResearchReport, error) {
+	ctx := context.Background()
+
+	job, err := s.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+
+	cands, _ := s.ListCandidates(ctx, jobID)
+	hyps, _ := s.ListHypotheses(ctx, jobID)
+
+	var confirmed, refuted, inconclusive []reports.FindingDetail
+	for _, h := range hyps {
+		revs, _ := s.ListReviews(ctx, h.HypothesisID)
+		vals, _ := s.ListValidationRuns(ctx, h.HypothesisID)
+
+		detail := reports.FindingDetail{
+			HypothesisID:      h.HypothesisID.String(),
+			Title:             h.Title,
+			Status:            h.Status,
+			Weakness:          h.Weakness,
+			AffectedLocations: h.AffectedLocations,
+			SecurityInvariant: h.SecurityInvariant,
+			Impact:            h.Impact,
+			ExpectedFailure:   h.ExpectedFailure,
+			FailureSignature:  h.FailureSignature,
+			ValidationPlan:    h.ValidationPlan,
+			Counterarguments:  h.Counterarguments,
+			Reviews:           revs,
+			Validations:       vals,
+		}
+
+		switch h.Status {
+		case domain.HypothesisConfirmed:
+			confirmed = append(confirmed, detail)
+		case domain.HypothesisRefuted:
+			refuted = append(refuted, detail)
+		default:
+			inconclusive = append(inconclusive, detail)
+		}
+	}
+
+	return &reports.ResearchReport{
+		JobID:              job.ID.String(),
+		RepositoryRef:      job.RepositoryRef,
+		RepositoryRevision: job.RepositoryRevision,
+		JobStatus:          job.Status,
+		GeneratedAt:        time.Now().UTC(),
+		Summary: reports.ReportSummary{
+			TotalCandidates: len(cands),
+			TotalHypotheses: len(hyps),
+			Confirmed:       len(confirmed),
+			Refuted:         len(refuted),
+			Inconclusive:    len(inconclusive),
+		},
+		ConfirmedFindings:    confirmed,
+		RefutedFindings:      refuted,
+		InconclusiveFindings: inconclusive,
+	}, nil
+}
+
+// writeReportToDisk saves the report of a finished job as JSON and as Markdown. The job
+// state is held in memory, so without this the findings of a run are gone when the
+// process ends.
+func writeReportToDisk(s store.Store, cfg *config.Config, jobID uuid.UUID) {
+	rep, err := buildReport(s, jobID)
+	if err != nil {
+		telemetry.Error("Could not build the report of a finished job", "REPORT_BUILD_FAILED", map[string]interface{}{
+			"job_id": jobID.String(),
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	dir := cfg.Storage.ReportDirectory
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		telemetry.Error("Could not create the report directory", "REPORT_WRITE_FAILED", map[string]interface{}{
+			"job_id": jobID.String(),
+			"dir":    dir,
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	jsonBody, err := rep.GenerateJSONReport()
+	if err == nil {
+		jsonPath := filepath.Join(dir, rep.JobID+".json")
+		if err := os.WriteFile(jsonPath, jsonBody, 0o644); err == nil {
+			telemetry.Info("Report written", map[string]interface{}{
+				"job_id": rep.JobID,
+				"path":   jsonPath,
+			})
+		}
+	}
+
+	mdPath := filepath.Join(dir, rep.JobID+".md")
+	if err := os.WriteFile(mdPath, []byte(rep.GenerateMarkdownReport()), 0o644); err == nil {
+		telemetry.Info("Report written", map[string]interface{}{
+			"job_id": rep.JobID,
+			"path":   mdPath,
+		})
+	}
 }
 
 type systemRole struct {

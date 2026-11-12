@@ -419,9 +419,24 @@ models:
 
 storage:
   artifact_directory: ./var/artifacts
+  report_directory: ./var/reports
 ```
 
-Some keys are accepted by the config loader but **not enforced yet**: `app.log_level`, `research.max_concurrent_jobs`, `research.max_hypotheses_per_job` (recorded as the job's iteration limit only), `research.require_reviewer_before_validation` (the Reviewer always runs), `validation.enabled`, `validation.max_memory_mb`, `validation.max_cpu_seconds`, `validation.max_processes`, `storage.postgres_dsn_env`, `storage.artifact_backend`.
+Some keys are accepted by the config loader but **not enforced yet**: `app.log_level`, `research.max_concurrent_jobs`, `research.require_reviewer_before_validation`, `validation.enabled`, `validation.max_memory_mb`, `validation.max_cpu_seconds`, `validation.max_processes`, `storage.postgres_dsn_env`, `storage.artifact_backend`.
+
+### Where the findings are kept
+
+The job state (jobs, candidates, hypotheses, reviews, validation runs) is held **in memory**:
+there is no database yet, and a restart throws it away. So that a run's findings survive,
+the API writes the report of every finished job to `storage.report_directory` as it ends:
+
+```
+var/reports/<job-id>.md      # the findings as Markdown
+var/reports/<job-id>.json    # the same, machine-readable
+```
+
+The captured output of each validation run is kept separately, content-addressed, under
+`storage.artifact_directory` (`artifact://<sha256>`).
 
 ---
 

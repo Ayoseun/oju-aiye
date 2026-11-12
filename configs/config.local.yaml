@@ -42,3 +42,4 @@ models:
 storage:
   artifact_backend: local
   artifact_directory: var/artifacts
+  report_directory: ./var/reports

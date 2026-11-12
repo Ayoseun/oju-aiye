@@ -52,3 +52,4 @@ storage:
   postgres_dsn_env: DATABASE_URL
   artifact_backend: local
   artifact_directory: ./var/artifacts
+  report_directory: ./var/reports

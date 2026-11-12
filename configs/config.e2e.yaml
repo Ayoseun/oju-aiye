@@ -52,3 +52,4 @@ storage:
   postgres_dsn_env: DATABASE_URL
   artifact_backend: local
   artifact_directory: ${E2E_ARTIFACT_DIR:-./var/e2e-artifacts}
+  report_directory: ${E2E_REPORT_DIR:-./var/e2e-reports}

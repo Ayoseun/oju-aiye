@@ -128,6 +128,10 @@ type StorageConfig struct {
 	PostgresDSNEnv    string `yaml:"postgres_dsn_env"`
 	ArtifactBackend   string `yaml:"artifact_backend"`
 	ArtifactDirectory string `yaml:"artifact_directory"`
+	// ReportDirectory is where the report of a finished job is written, as JSON and as
+	// Markdown. The job state itself is held in memory, so without this the findings
+	// of a run are gone when the process ends.
+	ReportDirectory string `yaml:"report_directory"`
 }
 
 func (s StorageConfig) GetPostgresDSN() string {
@@ -220,6 +224,7 @@ func Load(path string) (*Config, error) {
 		Storage: StorageConfig{
 			ArtifactBackend:   "local",
 			ArtifactDirectory: "./var/artifacts",
+			ReportDirectory:   "./var/reports",
 		},
 	}
 
