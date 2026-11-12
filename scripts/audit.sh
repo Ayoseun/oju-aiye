@@ -18,6 +18,8 @@ TARGET="${1:-testdata/targets/traversal-vulnerable}"
 SERVER="${SERVER:-http://localhost:8080}"
 CLI="${CLI:-./bin/cli}"
 POLL_SECONDS="${POLL_SECONDS:-3}"
+# Optional scope manifest: which paths are in scope and which findings are already known.
+SCOPE="${SCOPE:-}"
 
 if [[ ! -d "$TARGET" ]]; then
   echo "target directory not found: $TARGET" >&2
@@ -33,7 +35,7 @@ ABS_TARGET="$(cd "$TARGET" && pwd)"
 echo "==> target: $ABS_TARGET"
 echo "==> server: $SERVER"
 
-RESPONSE="$($CLI --server "$SERVER" --authorized create "$ABS_TARGET" HEAD)"
+RESPONSE="$($CLI --server "$SERVER" --authorized ${SCOPE:+--scope "$SCOPE"} create "$ABS_TARGET" HEAD)"
 JOB_ID="$(printf '%s' "$RESPONSE" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
 
 if [[ -z "$JOB_ID" ]]; then

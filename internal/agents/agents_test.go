@@ -31,7 +31,10 @@ func TestScoutAgent(t *testing.T) {
 	]`, 100, 50)
 
 	scout := NewScoutAgent(fake, "Scout instructions")
-	cands, resp, err := scout.DiscoverCandidates(ctx, "local://repo", "function transfer() {}")
+	cands, resp, err := scout.DiscoverCandidates(ctx, "local://repo", SourceChunk{
+		Index: 1, Total: 1, Files: []string{"src/token.sol"},
+		Text: "function transfer() {}",
+	}, JobContext{})
 	if err != nil {
 		t.Fatalf("unexpected scout error: %v", err)
 	}
@@ -88,7 +91,7 @@ func TestInvestigatorAgent(t *testing.T) {
 	}
 
 	inv := NewInvestigatorAgent(fake, "Investigator instructions")
-	hyp, _, err := inv.FormulateHypothesis(ctx, cand, "function transfer() public {}")
+	hyp, _, err := inv.FormulateHypothesis(ctx, cand, "function transfer() public {}", JobContext{})
 	if err != nil {
 		t.Fatalf("unexpected investigator error: %v", err)
 	}
@@ -124,7 +127,7 @@ func TestReviewerAgent(t *testing.T) {
 	}
 
 	reviewer := NewReviewerAgent(fake, "Reviewer instructions")
-	review, _, err := reviewer.ReviewHypothesis(ctx, hyp, "contract Token { function transfer() {} }")
+	review, _, err := reviewer.ReviewHypothesis(ctx, hyp, "contract Token { function transfer() {} }", JobContext{})
 	if err != nil {
 		t.Fatalf("unexpected reviewer error: %v", err)
 	}

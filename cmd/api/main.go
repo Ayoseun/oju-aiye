@@ -26,7 +26,6 @@ import (
 	"vuln-research/internal/state"
 	"vuln-research/internal/store"
 	"vuln-research/internal/telemetry"
-	"vuln-research/internal/tools"
 )
 
 func main() {
@@ -156,6 +155,7 @@ func main() {
 				RepositoryRef      string                 `json:"repository_ref"`
 				RepositoryRevision string                 `json:"repository_revision"`
 				AuthorizationScope map[string]interface{} `json:"authorization_scope"`
+				ScopeFile          string                 `json:"scope_file"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -176,13 +176,19 @@ func main() {
 			}
 
 			jobID := uuid.New()
+			configSnapshot := map[string]interface{}{}
+			if req.ScopeFile != "" {
+				// The scope manifest says which parts of the repository the program puts
+				// in scope, and what it already knows.
+				configSnapshot["scope_file"] = req.ScopeFile
+			}
 			job := &domain.ResearchJob{
 				ID:                 jobID,
 				RepositoryRef:      req.RepositoryRef,
 				RepositoryRevision: req.RepositoryRevision,
 				AuthorizationScope: req.AuthorizationScope,
 				Status:             domain.JobStatusQueued,
-				ConfigSnapshot:     map[string]interface{}{},
+				ConfigSnapshot:     configSnapshot,
 				IterationLimit:     cfg.Research.MaxHypothesesPerJob,
 			}
 
@@ -201,15 +207,7 @@ func main() {
 					cancel()
 				}()
 
-				// Build source context summary if local path exists
-				sourceContext := fmt.Sprintf("Repository reference: %s", repoPath)
-				if inv, err := tools.InventoryRepository(repoPath); err == nil {
-					if summary, err := inv.BuildContextSummary(repoPath, 30000); err == nil {
-						sourceContext = summary
-					}
-				}
-
-				_ = coord.RunJob(ctx, jID, sourceContext)
+				_ = coord.RunJob(ctx, jID)
 			}(jobID, req.RepositoryRef)
 
 			w.WriteHeader(http.StatusCreated)

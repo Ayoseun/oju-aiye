@@ -32,6 +32,15 @@ type ResearchConfig struct {
 	AgentRetryBaseSeconds int `yaml:"agent_retry_base_seconds"`
 	// AgentRetryMaxSeconds caps a single wait between two model attempts.
 	AgentRetryMaxSeconds int `yaml:"agent_retry_max_seconds"`
+	// ScoutChunkBytes is how much source is handed to the Scout in one call. The target
+	// is split into batches of this size, so a codebase larger than one model context is
+	// still read in full.
+	ScoutChunkBytes int `yaml:"scout_chunk_bytes"`
+	// MaxFileBytes is the largest excerpt taken from a single file.
+	MaxFileBytes int `yaml:"max_file_bytes"`
+	// AgentContextBytes is how much of the candidate's own file the Investigator and the
+	// Reviewer are shown.
+	AgentContextBytes int `yaml:"agent_context_bytes"`
 }
 
 func (r ResearchConfig) JobTimeout() time.Duration {
@@ -184,6 +193,9 @@ func Load(path string) (*Config, error) {
 			RequireReviewerBeforeValidation: true,
 			AgentRetryBaseSeconds:           2,
 			AgentRetryMaxSeconds:            60,
+			ScoutChunkBytes:                 60000,
+			MaxFileBytes:                    24000,
+			AgentContextBytes:               40000,
 		},
 		Validation: ValidationConfig{
 			Enabled:           true,

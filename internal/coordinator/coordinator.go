@@ -12,8 +12,10 @@ import (
 	"vuln-research/internal/config"
 	"vuln-research/internal/domain"
 	"vuln-research/internal/models"
+	"vuln-research/internal/scope"
 	"vuln-research/internal/store"
 	"vuln-research/internal/telemetry"
+	"vuln-research/internal/tools"
 	"vuln-research/internal/validation"
 )
 
@@ -60,7 +62,7 @@ func NewCoordinator(cfg *config.Config, s store.Store, reg *models.Registry) (*C
 }
 
 // RunJob executes the full agent research pipeline for a specific job.
-func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext string) error {
+func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 	job, err := c.store.GetJob(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("job not found: %w", err)
@@ -71,51 +73,101 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		return err
 	}
 
-	// 2. Inventorying
-	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInventorying, "Inventory completed"); err != nil {
+	// 2. Inventorying: which files the program puts in scope, and how they are batched.
+	sc := c.loadScope(job)
+	files, err := tools.ScopedFiles(job.RepositoryRef, sc)
+	if err != nil {
+		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusFailed, fmt.Sprintf("Could not read target: %v", err))
 		return err
 	}
+	chunks, err := tools.BuildChunks(job.RepositoryRef, files, c.cfg.Research.ScoutChunkBytes, c.cfg.Research.MaxFileBytes)
+	if err != nil {
+		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusFailed, fmt.Sprintf("Could not read target: %v", err))
+		return err
+	}
+	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInventorying,
+		fmt.Sprintf("%d files in scope, read in %d batches", len(files), len(chunks))); err != nil {
+		return err
+	}
+	if len(chunks) == 0 {
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "No source files in scope")
+	}
 
-	// 3. Discovering (Scout)
+	jc := c.jobContext(sc, files, chunks)
+
+	// 3. Discovering (Scout), one batch at a time so the whole target is read.
 	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusDiscovering, "Invoking Scout agent"); err != nil {
 		return err
 	}
 
-	scoutTask := &domain.AgentTask{
-		ID:           uuid.New(),
-		JobID:        jobID,
-		Role:         "scout",
-		Status:       "running",
-		ModelID:      c.cfg.Models["scout"].ModelID,
-		AttemptCount: 1,
-	}
-	_ = c.store.CreateTask(ctx, scoutTask)
+	var candidates []*domain.Candidate
+	seen := map[string]bool{}
+	scoutFailures := 0
 
-	candidates, _, err := c.scout.DiscoverCandidates(ctx, job.RepositoryRef, sourceContext)
-	now := time.Now().UTC()
-	scoutTask.FinishedAt = &now
-	if err != nil {
-		scoutTask.Status = "failed"
-		scoutTask.ErrorSummary = err.Error()
+	for _, chunk := range chunks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		scoutTask := &domain.AgentTask{
+			ID:           uuid.New(),
+			JobID:        jobID,
+			Role:         "scout",
+			Status:       "running",
+			ModelID:      c.cfg.Models["scout"].ModelID,
+			AttemptCount: 1,
+		}
+		_ = c.store.CreateTask(ctx, scoutTask)
+
+		chunkCands, _, err := c.scout.DiscoverCandidates(ctx, job.RepositoryRef, agents.SourceChunk{
+			Index: chunk.Index,
+			Total: chunk.Total,
+			Files: chunk.Files,
+			Text:  chunk.Text,
+		}, jc)
+		now := time.Now().UTC()
+		scoutTask.FinishedAt = &now
+		if err != nil {
+			scoutTask.Status = "failed"
+			scoutTask.ErrorSummary = err.Error()
+			_ = c.store.UpdateTask(ctx, scoutTask)
+			// One unreadable batch must not sink the audit: keep going and say so
+			// at the end.
+			scoutFailures++
+			telemetry.Error(fmt.Sprintf("Scout failed on batch %d of %d", chunk.Index, chunk.Total), "SCOUT_BATCH_FAILED", map[string]interface{}{
+				"job_id": jobID.String(),
+				"batch":  chunk.Index,
+				"error":  err.Error(),
+			})
+			continue
+		}
+
+		scoutTask.Status = "completed"
 		_ = c.store.UpdateTask(ctx, scoutTask)
-		_ = c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusFailed, fmt.Sprintf("Scout failed: %v", err))
-		return err
+
+		for _, cand := range chunkCands {
+			key := fmt.Sprintf("%s:%s:%d", cand.RepositoryPath, cand.Symbol, cand.LineStart)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, cand)
+			_ = c.store.CreateCandidate(ctx, jobID, cand)
+		}
 	}
 
-	scoutTask.Status = "completed"
-	_ = c.store.UpdateTask(ctx, scoutTask)
-
-	for _, cand := range candidates {
-		_ = c.store.CreateCandidate(ctx, jobID, cand)
-	}
-
-	telemetry.Info(fmt.Sprintf("Scout discovered %d candidates", len(candidates)), map[string]interface{}{
+	telemetry.Info(fmt.Sprintf("Scout discovered %d candidates in %d batches", len(candidates), len(chunks)), map[string]interface{}{
 		"job_id": jobID.String(),
 		"count":  len(candidates),
+		"batches": len(chunks),
 	})
 
 	if len(candidates) == 0 {
-		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "No security candidates found in source")
+		reason := "No security candidates found in source"
+		if scoutFailures > 0 {
+			reason = fmt.Sprintf("No security candidates found, and %d of %d batches could not be read", scoutFailures, len(chunks))
+		}
+		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, reason)
 	}
 
 	// 4. Analyzing (Investigator)
@@ -128,11 +180,17 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		candidateOf = map[uuid.UUID]*domain.Candidate{} // hypothesis ID -> its candidate, for revisions
 		problems    []string                            // agent failures that left something unanalyzed
 	)
+
+	limit := c.cfg.Research.MaxHypothesesPerJob
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
 	for _, cand := range candidates {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		hyp, err := c.investigate(ctx, jobID, cand, nil, nil, sourceContext)
+		hyp, err := c.investigate(ctx, jobID, cand, nil, nil, c.candidateContext(job, files, cand), jc)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("investigator failed on %s: %v", cand.RepositoryPath, err))
 			continue
@@ -180,7 +238,7 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 		var needMore []*domain.Hypothesis
 		feedback := map[uuid.UUID]*domain.ReviewResult{}
 		for _, hyp := range pending {
-			review, err := c.review(ctx, jobID, hyp, sourceContext)
+			review, err := c.review(ctx, jobID, hyp, c.candidateContext(job, files, candidateOf[hyp.HypothesisID]), jc)
 			if err != nil {
 				// Unreviewed is unresolved, not refuted: keep it visible and say why.
 				problems = append(problems, fmt.Sprintf("reviewer failed on %q: %v", hyp.Title, err))
@@ -226,7 +284,7 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 
 		pending = nil
 		for _, hyp := range needMore {
-			revised, err := c.investigate(ctx, jobID, candidateOf[hyp.HypothesisID], hyp, feedback[hyp.HypothesisID], sourceContext)
+			revised, err := c.investigate(ctx, jobID, candidateOf[hyp.HypothesisID], hyp, feedback[hyp.HypothesisID], c.candidateContext(job, files, candidateOf[hyp.HypothesisID]), jc)
 			if err != nil {
 				problems = append(problems, fmt.Sprintf("investigator could not revise %q: %v", hyp.Title, err))
 				unresolvedCount++ // stays needs_more_evidence
@@ -333,6 +391,66 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID, sourceContext
 	return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "Validation tests disproved all hypotheses")
 }
 
+// loadScope reads the audit scope recorded on the job. A job without a scope audits the whole
+// repository and tells the agents nothing about the program.
+func (c *Coordinator) loadScope(job *domain.ResearchJob) *scope.Scope {
+	if job.ConfigSnapshot == nil {
+		return nil
+	}
+	path, _ := job.ConfigSnapshot["scope_file"].(string)
+	if path == "" {
+		return nil
+	}
+	sc, err := scope.Load(path)
+	if err != nil {
+		telemetry.Error("Could not read the scope file; auditing the whole repository", "SCOPE_LOAD_FAILED", map[string]interface{}{
+			"job_id": job.ID.String(),
+			"scope":  path,
+			"error":  err.Error(),
+		})
+		return nil
+	}
+	return sc
+}
+
+// jobContext describes the audit program to the agents.
+func (c *Coordinator) jobContext(sc *scope.Scope, files []string, chunks []tools.Chunk) agents.JobContext {
+	jc := agents.JobContext{}
+	if sc == nil {
+		return jc
+	}
+	jc.KnownIssues = sc.KnownIssues
+
+	var note string
+	if len(sc.Include) > 0 {
+		note += fmt.Sprintf("Only these paths are in scope: %s.\n", strings.Join(sc.Include, ", "))
+	}
+	if len(sc.Exclude) > 0 {
+		note += fmt.Sprintf("These paths are explicitly out of scope and must not be reported on: %s.\n", strings.Join(sc.Exclude, ", "))
+	}
+	note += fmt.Sprintf("The audit surface is %d files, read in %d batches. Report only on code you have seen in the source you were given.", len(files), len(chunks))
+	jc.ScopeNote = note
+	return jc
+}
+
+// candidateContext returns the source of the file a candidate points at. The Investigator and
+// the Reviewer have to reason about the code itself: at the scale of a real program, a single
+// shared excerpt of the whole repository would not even contain the file they are judging.
+func (c *Coordinator) candidateContext(job *domain.ResearchJob, files []string, cand *domain.Candidate) string {
+	if cand == nil {
+		return ""
+	}
+	rel := tools.ResolveScopedPath(files, cand.RepositoryPath)
+	if rel == "" {
+		rel = cand.RepositoryPath
+	}
+	ctx := tools.FileContext(job.RepositoryRef, rel, cand.LineStart, cand.LineEnd, c.cfg.Research.AgentContextBytes)
+	if ctx == "" {
+		return fmt.Sprintf("The source of %s could not be read.", rel)
+	}
+	return ctx
+}
+
 func plural(n int, one, many string) string {
 	if n == 1 {
 		return fmt.Sprintf("%d %s", n, one)
@@ -354,7 +472,7 @@ func summarizeProblems(problems []string) string {
 
 // investigate runs the Investigator for a candidate (previous == nil) or revises an existing
 // hypothesis from Reviewer feedback, recording an agent task either way.
-func (c *Coordinator) investigate(ctx context.Context, jobID uuid.UUID, cand *domain.Candidate, previous *domain.Hypothesis, feedback *domain.ReviewResult, sourceContext string) (*domain.Hypothesis, error) {
+func (c *Coordinator) investigate(ctx context.Context, jobID uuid.UUID, cand *domain.Candidate, previous *domain.Hypothesis, feedback *domain.ReviewResult, contextSnippet string, jc agents.JobContext) (*domain.Hypothesis, error) {
 	task := &domain.AgentTask{
 		ID:           uuid.New(),
 		JobID:        jobID,
@@ -373,9 +491,9 @@ func (c *Coordinator) investigate(ctx context.Context, jobID uuid.UUID, cand *do
 		err error
 	)
 	if previous == nil {
-		hyp, _, err = c.investigator.FormulateHypothesis(ctx, cand, sourceContext)
+		hyp, _, err = c.investigator.FormulateHypothesis(ctx, cand, contextSnippet, jc)
 	} else {
-		hyp, _, err = c.investigator.ReviseHypothesis(ctx, cand, previous, feedback, sourceContext)
+		hyp, _, err = c.investigator.ReviseHypothesis(ctx, cand, previous, feedback, contextSnippet, jc)
 	}
 
 	now := time.Now().UTC()
@@ -393,7 +511,7 @@ func (c *Coordinator) investigate(ctx context.Context, jobID uuid.UUID, cand *do
 }
 
 // review runs the Reviewer on a hypothesis and records the task and the review.
-func (c *Coordinator) review(ctx context.Context, jobID uuid.UUID, hyp *domain.Hypothesis, sourceContext string) (*domain.ReviewResult, error) {
+func (c *Coordinator) review(ctx context.Context, jobID uuid.UUID, hyp *domain.Hypothesis, primarySourceContext string, jc agents.JobContext) (*domain.ReviewResult, error) {
 	task := &domain.AgentTask{
 		ID:           uuid.New(),
 		JobID:        jobID,
@@ -405,7 +523,7 @@ func (c *Coordinator) review(ctx context.Context, jobID uuid.UUID, hyp *domain.H
 	}
 	_ = c.store.CreateTask(ctx, task)
 
-	review, _, err := c.reviewer.ReviewHypothesis(ctx, hyp, sourceContext)
+	review, _, err := c.reviewer.ReviewHypothesis(ctx, hyp, primarySourceContext, jc)
 	now := time.Now().UTC()
 	task.FinishedAt = &now
 	if err != nil {

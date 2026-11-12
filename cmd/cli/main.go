@@ -15,6 +15,7 @@ func main() {
 	serverURL := flag.String("server", "http://localhost:8080", "Server base URL")
 	format := flag.String("format", "json", "Output format for report (json or markdown)")
 	authorized := flag.Bool("authorized", false, "Confirm you are authorized to audit the target repository (required for create)")
+	scopeFile := flag.String("scope", "", "Path to a scope manifest (YAML): which paths are in scope and which findings are already known")
 	flag.Parse()
 
 	args := flag.Args()
@@ -39,7 +40,7 @@ func main() {
 			fmt.Println("Refusing to create job: pass --authorized to confirm you are permitted to audit this repository.")
 			os.Exit(1)
 		}
-		createJob(*serverURL, repo, rev)
+		createJob(*serverURL, repo, rev, *scopeFile)
 
 	case "list":
 		listJobs(*serverURL)
@@ -99,12 +100,16 @@ func printUsage() {
 	fmt.Println("  health                           Query server health probes")
 }
 
-func createJob(server, repo, rev string) {
-	payload, _ := json.Marshal(map[string]interface{}{
+func createJob(server, repo, rev, scopeFile string) {
+	payloadBody := map[string]interface{}{
 		"repository_ref":      repo,
 		"repository_revision": rev,
 		"authorization_scope": map[string]interface{}{"authorized": true},
-	})
+	}
+	if scopeFile != "" {
+		payloadBody["scope_file"] = scopeFile
+	}
+	payload, _ := json.Marshal(payloadBody)
 
 	resp, err := http.Post(server+"/api/v1/jobs", "application/json", bytes.NewReader(payload))
 	if err != nil {

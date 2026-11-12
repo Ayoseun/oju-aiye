@@ -249,6 +249,45 @@ If you want a real model with no network round-trip at all, run Ollama locally a
 
 ---
 
+## 5c. Auditing a large target: scope manifests
+
+A bug bounty program rarely puts a whole repository in scope, and it always publishes the
+findings of earlier audits. A **scope manifest** tells the platform both:
+
+```yaml
+include:
+  - packages/perps/src          # only these paths are analysed
+exclude:
+  - packages/perps/src/VaultLens.sol   # explicitly out of scope, even inside an included path
+known_issues_file: known-issues.md      # public findings that cannot be rewarded
+```
+
+```bash
+./bin/cli --authorized --scope plether-scope.yaml create /path/to/repo <commit>
+SCOPE=plether-scope.yaml scripts/audit.sh /path/to/repo
+```
+
+What the manifest changes:
+
+- **The Scout only reads in-scope code.** `include` and `exclude` are applied to the file walk,
+  so out-of-scope packages, dependencies and build output are never sent to a model.
+- **The whole target is read.** The target is split into batches of
+  `research.scout_chunk_bytes` and the Scout is called once per batch, so a codebase larger
+  than one model context is still read in full. A file bigger than `research.max_file_bytes`
+  is split into labelled parts rather than cut off: the largest contracts are usually the
+  ones worth reading.
+- **The Investigator and the Reviewer see the candidate's own file**, centred on the lines the
+  candidate cites — not one shared excerpt of the repository.
+- **Known issues are given to every agent**, so the pipeline does not spend its budget
+  rediscovering findings that cannot be rewarded. The program rules that shape what counts
+  (for example "attacks requiring a malicious privileged role are out of scope") belong in the
+  same file.
+
+`configs/config.competition.yaml` is the profile for this kind of run: bounded hypothesis
+count, long timeouts, and generous retries for shared endpoints.
+
+---
+
 ## 6. Makefile reference
 
 | Command | Action |
@@ -260,6 +299,7 @@ If you want a real model with no network round-trip at all, run Ollama locally a
 | `make run-api` | API on `:8080` using `configs/config.example.yaml` |
 | `make run-api-autopull` | Same, with automatic model download |
 | `make run-api-free` | API on `:8080` using `configs/config.free.yaml` (free online endpoints) |
+| `make run-api-competition` | API on `:8080` using `configs/config.competition.yaml` (large targets, bounded runs) |
 | `make audit [TARGET=dir]` | Run one real audit against a running API and print the report |
 | `make docker-up` / `docker-down` / `docker-logs` | Manage the Docker Compose stack |
 | `make docker-cli ARGS="..."` | Run the CLI inside the API container |
@@ -329,6 +369,9 @@ research:
   max_agent_retries: 2          # values <= 0 fall back to 3
   agent_retry_base_seconds: 2   # wait before the first retry of a rate-limited model call
   agent_retry_max_seconds: 60   # cap on a single wait between two attempts
+  scout_chunk_bytes: 60000      # source per Scout call; the target is read in batches
+  max_file_bytes: 24000         # a bigger file is split into parts, not cut off
+  agent_context_bytes: 40000    # what the Investigator and Reviewer see of the file
 
 validation:
   network_access: disabled

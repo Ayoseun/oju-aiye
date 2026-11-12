@@ -17,7 +17,6 @@ import (
 	"vuln-research/internal/models"
 	"vuln-research/internal/replay"
 	"vuln-research/internal/store"
-	"vuln-research/internal/tools"
 )
 
 // pipelineResult is everything an end-to-end test might want to assert on.
@@ -91,14 +90,8 @@ func runPipeline(t *testing.T, scenario, target string) pipelineResult {
 		t.Fatal(err)
 	}
 
-	sourceContext := "Repository reference: " + repoPath
-	if inv, err := tools.InventoryRepository(repoPath); err == nil {
-		if sum, err := inv.BuildContextSummary(repoPath, 30000); err == nil {
-			sourceContext = sum
-		}
-	}
 	// RunJob may return an error for jobs that legitimately end `failed`; the tests assert on state.
-	_ = coord.RunJob(ctx, job.ID, sourceContext)
+	_ = coord.RunJob(ctx, job.ID)
 
 	res := pipelineResult{
 		reviews: map[uuid.UUID][]*domain.ReviewResult{},

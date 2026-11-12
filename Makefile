@@ -68,6 +68,11 @@ run-api-free: build
 	@echo -e "$(YELLOW)Source configs/free.env first to pick a provider. Console: http://localhost:8080/$(RESET)"
 	./$(API_BIN) -config configs/config.free.yaml
 
+## run-api-competition: Run the API with the competition profile (large targets, bounded runs)
+run-api-competition: build
+	@echo -e "$(CYAN)==> Launching API with the competition profile (your code leaves this machine)...$(RESET)"
+	./$(API_BIN) -config configs/config.competition.yaml
+
 ## audit: Run one real audit against a running API and print the report (TARGET=<dir> to override)
 audit: build
 	@./scripts/audit.sh $(TARGET)

@@ -25,21 +25,23 @@ func NewReviewerAgent(adapter models.ModelAdapter, systemPrompt string) *Reviewe
 }
 
 // ReviewHypothesis examines the hypothesis against primary source code and determines next action.
-func (r *ReviewerAgent) ReviewHypothesis(ctx context.Context, hyp *domain.Hypothesis, primarySourceContext string) (*domain.ReviewResult, models.ModelResponse, error) {
+func (r *ReviewerAgent) ReviewHypothesis(ctx context.Context, hyp *domain.Hypothesis, primarySourceContext string, jc JobContext) (*domain.ReviewResult, models.ModelResponse, error) {
 	hypJSON, _ := json.MarshalIndent(hyp, "", "  ")
 
-	promptInput := fmt.Sprintf("Hypothesis under review:\n%s\n\nPrimary Source Context:\n%s\n\nProvide an independent adversarial critique as JSON.", string(hypJSON), primarySourceContext)
+	promptInput := fmt.Sprintf("Hypothesis under review:\n%s\n\nPrimary Source of the file under review (this is the only code you have):\n%s\n\nProvide an independent adversarial critique as JSON.", string(hypJSON), primarySourceContext)
 
 	req := models.ModelRequest{
 		Role:            "reviewer",
-		SystemPrompt:    r.SystemPrompt,
+		SystemPrompt:    jc.preamble() + r.SystemPrompt,
 		Input:           promptInput,
 		MaxOutputTokens: 3000,
 		Temperature:     0.1,
 		ResponseSchema:  string(schema.KindReviewResult),
 	}
 
-	jsonBytes, resp, err := CallAndValidate(ctx, r.Adapter, req, schema.KindReviewResult)
+	jsonBytes, resp, err := CallAndValidateRepairing(ctx, r.Adapter, req, schema.KindReviewResult,
+		[]string{"supporting_points", "counterarguments", "missing_evidence", "falsification_tests"},
+		map[string]string{"schema_version": "1.0"})
 	if err != nil {
 		return nil, resp, fmt.Errorf("reviewer evaluation failed: %w", err)
 	}

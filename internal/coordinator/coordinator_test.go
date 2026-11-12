@@ -2,6 +2,8 @@ package coordinator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -108,10 +110,20 @@ func TestCoordinatorFullThreeAgentPipeline(t *testing.T) {
 		t.Fatalf("failed to create coordinator: %v", err)
 	}
 
+	// The coordinator reads the target from disk, so the job needs a real directory.
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "src", "vault.sol"),
+		[]byte("contract Vault { function flashLoan() {} }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	jobID := uuid.New()
 	job := &domain.ResearchJob{
 		ID:                 jobID,
-		RepositoryRef:      "local://defi-vault",
+		RepositoryRef:      repoDir,
 		RepositoryRevision: "main",
 		Status:             domain.JobStatusQueued,
 		IterationLimit:     4,
@@ -121,7 +133,7 @@ func TestCoordinatorFullThreeAgentPipeline(t *testing.T) {
 	}
 
 	// Execute full workflow
-	if err := coord.RunJob(ctx, jobID, "contract Vault { function flashLoan() {} }"); err != nil {
+	if err := coord.RunJob(ctx, jobID); err != nil {
 		t.Fatalf("RunJob returned error: %v", err)
 	}
 
