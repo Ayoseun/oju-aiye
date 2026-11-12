@@ -136,3 +136,22 @@ func TestReviewerAgent(t *testing.T) {
 		t.Errorf("expected decision accept_for_validation, got %s", review.Decision)
 	}
 }
+
+// An empty candidate list is a valid answer: the model looked and found nothing.
+func TestScoutAcceptsAnEmptyCandidateList(t *testing.T) {
+	ctx := context.Background()
+	fake := models.NewFakeAdapter("test-scout")
+
+	fake.EnqueueResponse(`{"schema_version":"1.0","candidates":[]}`, 100, 50)
+
+	scout := NewScoutAgent(fake, "Scout instructions")
+	cands, _, err := scout.DiscoverCandidates(ctx, "local://repo", SourceChunk{
+		Index: 1, Total: 1, Files: []string{"src/a.sol"}, Text: "contract A {}",
+	}, JobContext{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cands) != 0 {
+		t.Errorf("expected no candidates, got %d", len(cands))
+	}
+}

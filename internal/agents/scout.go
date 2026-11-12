@@ -120,6 +120,12 @@ func (s *ScoutAgent) discoverOnce(ctx context.Context, repoRef string, chunk Sou
 		candidates = append(candidates, &cand)
 	}
 
+	if len(candidates) == 0 && rejected == 0 {
+		// The model looked at the batch and reported nothing. That is an answer, not
+		// a failure.
+		return candidates, resp, nil
+	}
+
 	if len(candidates) == 0 && rejected > 0 {
 		return nil, resp, fmt.Errorf("no candidate in this batch satisfied the schema (%d rejected). First error: %s (content: %s)",
 			rejected, firstRejection, truncate(firstRejectedRaw, 300))
@@ -225,7 +231,8 @@ func candidateItems(cleanJSON string) ([]json.RawMessage, error) {
 }
 
 // wrappedCandidateList finds an array of candidates inside an object, under any of the
-// keys models use for it.
+// keys models use for it. An empty array is a valid answer: it means the model looked at
+// the batch and found nothing worth reporting.
 func wrappedCandidateList(cleanJSON string) ([]json.RawMessage, bool) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(cleanJSON), &obj); err != nil {
@@ -237,7 +244,7 @@ func wrappedCandidateList(cleanJSON string) ([]json.RawMessage, bool) {
 			continue
 		}
 		var list []json.RawMessage
-		if err := json.Unmarshal(raw, &list); err == nil && len(list) > 0 {
+		if err := json.Unmarshal(raw, &list); err == nil {
 			return list, true
 		}
 	}
