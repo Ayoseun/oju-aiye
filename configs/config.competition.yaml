@@ -18,6 +18,8 @@ research:
   max_iterations_per_hypothesis: 2      # one revision round at most
   max_agent_retries: 8                 # a shared free endpoint rate-limits hard
   max_batch_retries: 2                 # a flaky batch is asked again before it is lost
+  max_scout_batches: 24                # a full scan of a big target takes hours on a
+                                       # rate-limited endpoint; this bounds it
   agent_retry_base_seconds: 15
   agent_retry_max_seconds: 90
   scout_chunk_bytes: 40000             # one model call per batch of source; a model that

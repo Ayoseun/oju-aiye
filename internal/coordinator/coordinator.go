@@ -93,7 +93,7 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, "No source files in scope")
 	}
 
-	jc := c.jobContext(sc, files, chunks)
+	jc := c.jobContext(job.RepositoryRef, sc, files, chunks)
 
 	// 3. Discovering (Scout), one batch at a time so the whole target is read.
 	if err := c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusDiscovering, "Invoking Scout agent"); err != nil {
@@ -104,10 +104,19 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 	seen := map[string]bool{}
 	scoutFailures := 0
 
+	scannedBatches := 0
 	for _, chunk := range chunks {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if max := c.cfg.Research.MaxScoutBatches; max > 0 && scannedBatches >= max {
+			telemetry.Info(fmt.Sprintf("Stopping the scan after %d of %d batches", scannedBatches, len(chunks)), map[string]interface{}{
+				"job_id": jobID.String(),
+			})
+			break
+		}
+		scannedBatches++
+
 		chunkCands, failures, err := c.scoutChunk(ctx, jobID, job.RepositoryRef, agents.SourceChunk{
 			Index: chunk.Index,
 			Total: chunk.Total,
@@ -520,7 +529,7 @@ func (c *Coordinator) loadScope(job *domain.ResearchJob) *scope.Scope {
 }
 
 // jobContext describes the audit program to the agents.
-func (c *Coordinator) jobContext(sc *scope.Scope, files []string, chunks []tools.Chunk) agents.JobContext {
+func (c *Coordinator) jobContext(root string, sc *scope.Scope, files []string, chunks []tools.Chunk) agents.JobContext {
 	jc := agents.JobContext{}
 	if sc == nil {
 		return jc
@@ -536,6 +545,12 @@ func (c *Coordinator) jobContext(sc *scope.Scope, files []string, chunks []tools
 	}
 	note += fmt.Sprintf("The audit surface is %d files, read in %d batches. Report only on code you have seen in the source you were given.", len(files), len(chunks))
 	jc.ScopeNote = note
+
+	kind := tools.DescribeProject(root, files)
+	if kind.Language != "" {
+		jc.TargetNote = fmt.Sprintf("Language: %s. Build tool: %s. The project's own tests live in %s/ and are run with `%s`. A validation plan that proves a finding must use that toolchain.",
+			kind.Language, kind.BuildTool, kind.TestDir, kind.TestCommand)
+	}
 	return jc
 }
 

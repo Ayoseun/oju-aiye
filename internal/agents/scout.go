@@ -33,8 +33,32 @@ func NewScoutAgent(adapter models.ModelAdapter, systemPrompt string) *ScoutAgent
 // The target is split into chunks so a codebase larger than one model context is still
 // read in full.
 func (s *ScoutAgent) DiscoverCandidates(ctx context.Context, repoRef string, chunk SourceChunk, jc JobContext) ([]*domain.Candidate, models.ModelResponse, error) {
-	promptInput := fmt.Sprintf("Repository: %s\n\nFiles in this batch (%d of %d):\n%s\nSource Code Context:\n%s\n\nIdentify potential security candidates in this batch as JSON, at most %d of them. Report only candidates whose code you can actually see above.",
+	var (
+		lastErr error
+		resp    models.ModelResponse
+	)
+	for attempt := 0; attempt < scoutAttempts; attempt++ {
+		cands, r, err := s.discoverOnce(ctx, repoRef, chunk, jc, attempt)
+		resp = r
+		if err == nil {
+			return cands, resp, nil
+		}
+		lastErr = err
+	}
+	return nil, resp, lastErr
+}
+
+// scoutAttempts is how many times a batch is asked for. A model asked the same way
+// twice can answer `{}` twice, so the later attempts carry a nudge.
+const scoutAttempts = 3
+
+func (s *ScoutAgent) discoverOnce(ctx context.Context, repoRef string, chunk SourceChunk, jc JobContext, attempt int) ([]*domain.Candidate, models.ModelResponse, error) {
+	promptInput := fmt.Sprintf("Repository: %s\n\nFiles in this batch (%d of %d):\n%s\nSource Code Context:\n%s\n\nIdentify potential security candidates in this batch as JSON, at most %d of them. Report only candidates whose code you can actually see above.\n\nAnswer with one JSON object of this exact shape:\n{\"schema_version\":\"1.0\",\"candidates\":[{\"candidate_id\":\"c1\",\"repository_path\":\"<file above>\",\"symbol\":\"<function>\",\"line_start\":<int>,\"line_end\":<int>,\"suspected_class\":\"CWE-<id>\",\"rationale\":\"<one sentence>\",\"observed_facts\":[\"<fact from the code>\"],\"assumptions\":[\"<assumption>\"],\"suggested_next_steps\":[\"<next step>\"],\"confidence\":<0.0-1.0>}]}\nIf the batch holds nothing worth reporting, answer {\"candidates\": []}.",
 		repoRef, chunk.Index, chunk.Total, chunk.fileList(), chunk.Text, maxCandidatesPerChunk)
+
+	if attempt > 0 {
+		promptInput += fmt.Sprintf("\n\nYour previous answer (%d attempts ago) could not be read as a candidate list. Answer again with the JSON object above, filled in from the source code in this batch.", attempt)
+	}
 
 	systemPrompt := jc.preamble() + s.SystemPrompt
 

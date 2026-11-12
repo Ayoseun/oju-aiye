@@ -45,6 +45,11 @@ type ResearchConfig struct {
 	// returns something unusable. A shared endpoint is flaky, and a batch is a large
 	// part of the target: losing it silently leaves a hole in the coverage.
 	MaxBatchRetries int `yaml:"max_batch_retries"`
+	// MaxScoutBatches caps how many batches the Scout reads. Zero reads all of them.
+	// A large target on a rate-limited endpoint takes hours to scan, and a bounded
+	// scan that reaches the analysis phase is worth more than a complete one that
+	// does not.
+	MaxScoutBatches int `yaml:"max_scout_batches"`
 }
 
 func (r ResearchConfig) JobTimeout() time.Duration {
@@ -201,6 +206,7 @@ func Load(path string) (*Config, error) {
 			MaxFileBytes:                    24000,
 			AgentContextBytes:               40000,
 			MaxBatchRetries:                 2,
+			MaxScoutBatches:                 0,
 		},
 		Validation: ValidationConfig{
 			Enabled:           true,

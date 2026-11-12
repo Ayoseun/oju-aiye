@@ -51,7 +51,9 @@ You must return ONLY a JSON object conforming to the hypothesis schema:
 - Distinguish verified code facts from assumptions.
 - Do NOT declare a finding confirmed without runtime evidence.
 - `validation_plan[0]` is run with `sh -c` in a throwaway copy of the repository. It must exit non-zero AND print `failure_signature` when the vulnerability is present, and exit 0 when it is absent.
-- `validation_plan[0]` runs **from the root of that copy**, so write the test file into the current directory (not `/tmp`), where it can import the package under test, and run it with the project's own toolchain (`go test ./...`, `pytest`, `npm test`). A test in `/tmp` cannot import the local package and fails to build.
+- `validation_plan[0]` runs **from the root of that copy**, so write the test file into the current directory (not `/tmp`), where it can import the package under test.
+- Run the test with **the toolchain the target already uses**, as described in "The target" above (`go test`, `forge test`, `cargo test`, `pytest`, `npm test`). A test for one language never compiles in another: a Go command in a Solidity project fails to build, and the finding is then inconclusive rather than confirmed.
+- The test must fail for the reason you claim, and print `failure_signature` when it does. A test that fails to compile proves nothing.
 - `failure_signature` must be specific text from your own assertion message (for example `path traversal: read`), not a generic word such as `FAIL`, `error` or `panic`. A non-zero exit without that text (a compile error, crash or missing tool) is treated as inconclusive, never as a confirmed finding.
 - **Be terse.** Every string is one short sentence, at most 120 characters, and the whole object must fit in about 1200 tokens. A verbose answer gets cut off at the output limit and the call fails.
 - Return ONLY valid JSON matching the schema.

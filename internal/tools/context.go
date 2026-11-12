@@ -189,6 +189,86 @@ func splitIntoParts(content string, maxBytes int) []filePart {
 	return parts
 }
 
+// ProjectKind describes the language and build tool of a target, so the agents can be
+// told how to run a test in it. A model given a Solidity project and no hint tends to
+// write a Go test command for it.
+type ProjectKind struct {
+	// Language is the main language of the target, e.g. "Solidity" or "Go".
+	Language string
+	// BuildTool is the toolchain the project uses, e.g. "Foundry (forge)".
+	BuildTool string
+	// TestCommand is how the project's own tests are run.
+	TestCommand string
+	// TestDir is where the tests live, relative to the project root.
+	TestDir string
+}
+
+// DescribeProject looks at the files in scope and says what the target is.
+func DescribeProject(root string, files []string) ProjectKind {
+	kind := ProjectKind{}
+
+	has := func(name string) bool {
+		for _, f := range files {
+			if f == name || strings.HasSuffix(f, "/"+name) {
+				return true
+			}
+		}
+		return false
+	}
+
+	solidity := 0
+	goFiles := 0
+	for _, f := range files {
+		switch {
+		case strings.HasSuffix(f, ".sol"):
+			solidity++
+		case strings.HasSuffix(f, ".go"):
+			goFiles++
+		}
+	}
+
+	switch {
+	case has("foundry.toml"):
+		kind.Language = "Solidity"
+		kind.BuildTool = "Foundry (forge)"
+		kind.TestCommand = "forge test"
+		kind.TestDir = "test"
+	case has("hardhat.config.js"), has("hardhat.config.ts"):
+		kind.Language = "Solidity"
+		kind.BuildTool = "Hardhat"
+		kind.TestCommand = "npx hardhat test"
+	case has("Cargo.toml"):
+		kind.Language = "Rust"
+		kind.BuildTool = "Cargo"
+		kind.TestCommand = "cargo test"
+	case has("go.mod"):
+		kind.Language = "Go"
+		kind.BuildTool = "Go modules"
+		kind.TestCommand = "go test ./..."
+	case has("pyproject.toml"), has("requirements.txt"), has("setup.py"):
+		kind.Language = "Python"
+		kind.BuildTool = "Python"
+		kind.TestCommand = "pytest"
+	case has("package.json"):
+		kind.Language = "JavaScript/TypeScript"
+		kind.BuildTool = "npm"
+		kind.TestCommand = "npm test"
+	}
+
+	if kind.Language == "" {
+		switch {
+		case solidity > goFiles:
+			kind.Language = "Solidity"
+		case goFiles > 0:
+			kind.Language = "Go"
+		}
+	}
+	if kind.TestDir == "" {
+		kind.TestDir = "test"
+	}
+	return kind
+}
+
 // ResolveScopedPath finds the scoped file a model meant to refer to. Models are inconsistent
 // about paths: they may give the full repository path, a path relative to the source root, or
 // just the file name.

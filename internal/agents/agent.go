@@ -111,6 +111,10 @@ type JobContext struct {
 	// KnownIssues lists findings that are already public and therefore cannot be
 	// rewarded. The agents are told to look for something else.
 	KnownIssues string
+	// TargetNote describes the project: its language and how its tests are run. A
+	// model asked to write a test for a Solidity project without being told what
+	// the project is will write a Go test for it.
+	TargetNote string
 }
 
 // preamble renders the program context that is prepended to every agent prompt.
@@ -118,6 +122,9 @@ func (jc JobContext) preamble() string {
 	var parts []string
 	if jc.ScopeNote != "" {
 		parts = append(parts, "## Scope of this audit\n"+jc.ScopeNote)
+	}
+	if jc.TargetNote != "" {
+		parts = append(parts, "## The target\n"+jc.TargetNote)
 	}
 	if jc.KnownIssues != "" {
 		parts = append(parts, "## Already known (not eligible for a reward)\n"+
