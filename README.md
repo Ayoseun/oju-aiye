@@ -276,15 +276,46 @@ What the manifest changes:
   than one model context is still read in full. A file bigger than `research.max_file_bytes`
   is split into labelled parts rather than cut off: the largest contracts are usually the
   ones worth reading.
-- **The Investigator and the Reviewer see the candidate's own file**, centred on the lines the
-  candidate cites — not one shared excerpt of the repository.
+- **The Investigator and the Reviewer see the candidate's own file**, centred on the
+  **definition of the symbol** the candidate names. The cited line range is only the
+  fallback: a model that cannot count lines guesses a plausible line number, and an
+  excerpt built around that guess shows the Reviewer the wrong code.
 - **Known issues are given to every agent**, so the pipeline does not spend its budget
   rediscovering findings that cannot be rewarded. The program rules that shape what counts
   (for example "attacks requiring a malicious privileged role are out of scope") belong in the
   same file.
+- **The agents are told what the target is.** The language and the build tool are detected
+  from the files in scope, because a model asked to write a test for a Solidity project
+  without being told what the project is will write a Go test for it.
 
 `configs/config.competition.yaml` is the profile for this kind of run: bounded hypothesis
 count, long timeouts, and generous retries for shared endpoints.
+
+### Running against a shared endpoint
+
+A free or shared endpoint shapes how a run has to be configured:
+
+| What the endpoint does | What the platform does |
+|:--|:--|
+| rate-limits (`429`, `402` with a limit body, `5xx`) | retries with exponential backoff, honouring `Retry-After` |
+| refuses a batch as too large (`output_token_limit_exceeded`) | splits the batch at its file boundaries and reads each half on its own |
+| cuts an answer off at the token limit | reports the truncation (`finish_reason=length`) instead of a malformed answer |
+| answers `{}` or a made-up identifier | asks again with a nudge, and repairs the boilerplate |
+| thinks out loud and spends the output budget | set `reasoning_effort: low` on the role, and ask for terse answers in the prompts |
+
+`research.max_scout_batches` bounds the scan. A large target on a rate-limited endpoint
+takes hours to read, and a bounded scan that reaches the analysis phase is worth more than
+a complete one that does not.
+
+`scripts/proxylog.py` sits between the platform and the endpoint and records what the model
+actually answered. It is the quickest way to tell a rate limit apart from a refusal, a
+truncation or a malformed answer:
+
+```bash
+python3 scripts/proxylog.py --listen 11435 \
+  --upstream https://text.pollinations.ai/openai --log /tmp/proxy.log
+SCOUT_BASE_URL=http://127.0.0.1:11435 make run-api-competition
+```
 
 ---
 
@@ -400,7 +431,7 @@ Some keys are accepted by the config loader but **not enforced yet**: `app.log_l
 - **Jobs run unbounded in parallel** (no `max_concurrent_jobs` enforcement), and there is no authentication on the API.
 - **Revision quality depends on the model.** By default all three roles use the same small model, so the Reviewer and Investigator share blind spots; a stronger, different Reviewer helps.
 - **Validation is best-effort** (see §3). A Confirmed finding means "the declared signature appeared in a failing test", which is evidence, not proof (see §1).
-- **Real-model behavior is untested here.** The automated tests use a scripted stand-in model; how well a 7B model finds and reasons about real bugs has not been evaluated.
+- **Real-model behavior is barely tested here.** The automated tests use a scripted stand-in model. The pipeline has been run against a live model on the Plether audit competition (35k lines of Solidity, in scope), and that run found real leads, but a free shared endpoint is too flaky and too slow to measure quality from. A stronger model, a faster endpoint or a bigger budget is needed for that.
 
 ---
 

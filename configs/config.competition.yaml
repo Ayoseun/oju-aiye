@@ -32,7 +32,8 @@ research:
 validation:
   enabled: true
   network_access: disabled
-  max_runtime_seconds: 900             # a Foundry build of a large project is slow
+  max_runtime_seconds: 300             # a Foundry build of a large project is slow; raise
+                                    # it for a target that compiles in under five minutes
   max_memory_mb: 4096
   max_cpu_seconds: 600
   max_processes: 128
