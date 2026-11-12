@@ -438,6 +438,10 @@ var/reports/<job-id>.json    # the same, machine-readable
 The captured output of each validation run is kept separately, content-addressed, under
 `storage.artifact_directory` (`artifact://<sha256>`).
 
+`var/` is git-ignored on purpose. The findings of a live bug bounty are embargoed until the
+program publishes them, so a report is local to the machine that produced it: keep a copy
+somewhere private, and do not commit it.
+
 ---
 
 ## 10. Current limitations
