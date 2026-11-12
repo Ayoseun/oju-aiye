@@ -20,7 +20,8 @@ research:
   max_batch_retries: 2                 # a flaky batch is asked again before it is lost
   agent_retry_base_seconds: 15
   agent_retry_max_seconds: 90
-  scout_chunk_bytes: 80000             # one model call per batch of source
+  scout_chunk_bytes: 40000             # one model call per batch of source; a model that
+                                    # refuses a batch splits it and reads the halves
   max_file_bytes: 30000                # a bigger file is split into parts, not cut off
   agent_context_bytes: 40000           # what the Investigator and Reviewer see of the file
   job_timeout_seconds: 7200

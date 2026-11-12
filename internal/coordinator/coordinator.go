@@ -108,59 +108,18 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		// A shared endpoint is flaky: the same batch can come back with a usable
-		// answer, with nothing, or with a truncated one. A batch that fails is asked
-		// again before it is written off, because a batch is a large part of the
-		// target and losing it silently would leave a hole in the coverage.
-		var chunkCands []*domain.Candidate
-		var batchErr error
-		attempts := c.cfg.Research.MaxBatchRetries + 1
-		if attempts < 1 {
-			attempts = 1
-		}
-
-		for attempt := 0; attempt < attempts; attempt++ {
-			scoutTask := &domain.AgentTask{
-				ID:           uuid.New(),
-				JobID:        jobID,
-				Role:         "scout",
-				Status:       "running",
-				ModelID:      c.cfg.Models["scout"].ModelID,
-				AttemptCount: attempt + 1,
-			}
-			_ = c.store.CreateTask(ctx, scoutTask)
-
-			chunkCands, _, batchErr = c.scout.DiscoverCandidates(ctx, job.RepositoryRef, agents.SourceChunk{
-				Index: chunk.Index,
-				Total: chunk.Total,
-				Files: chunk.Files,
-				Text:  chunk.Text,
-			}, jc)
-
-			now := time.Now().UTC()
-			scoutTask.FinishedAt = &now
-			if batchErr != nil {
-				scoutTask.Status = "failed"
-				scoutTask.ErrorSummary = batchErr.Error()
-				_ = c.store.UpdateTask(ctx, scoutTask)
-				continue
-			}
-
-			scoutTask.Status = "completed"
-			_ = c.store.UpdateTask(ctx, scoutTask)
-			batchErr = nil
-			break
-		}
-
-		if batchErr != nil {
-			// One unreadable batch must not sink the audit: keep going and say so
-			// at the end.
-			scoutFailures++
+		chunkCands, failures, err := c.scoutChunk(ctx, jobID, job.RepositoryRef, agents.SourceChunk{
+			Index: chunk.Index,
+			Total: chunk.Total,
+			Files: chunk.Files,
+			Text:  chunk.Text,
+		}, jc)
+		scoutFailures += failures
+		if err != nil {
 			telemetry.Error(fmt.Sprintf("Scout failed on batch %d of %d", chunk.Index, chunk.Total), "SCOUT_BATCH_FAILED", map[string]interface{}{
 				"job_id": jobID.String(),
 				"batch":  chunk.Index,
-				"error":  batchErr.Error(),
+				"error":  err.Error(),
 			})
 			continue
 		}
@@ -409,6 +368,133 @@ func (c *Coordinator) RunJob(ctx context.Context, jobID uuid.UUID) error {
 		return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusInconclusive, fmt.Sprintf("Validation inconclusive for %d%s. %s", inconclusiveCount, unresolvedNote, summarizeProblems(problems)))
 	}
 	return c.store.UpdateJobStatus(ctx, jobID, "coordinator", domain.JobStatusRefuted, "Validation tests disproved all hypotheses")
+}
+
+// scoutChunk reads one batch of source. A model that finds nothing in a batch is asked
+// again, because a shared endpoint is flaky and a batch is a large part of the target.
+//
+// When the model refuses the batch because it is too large for its output budget, the
+// batch is split and each half is read on its own: asking again with the same input
+// would fail the same way, and the model may simply not have room to think about that
+// much code at once.
+func (c *Coordinator) scoutChunk(ctx context.Context, jobID uuid.UUID, repoRef string, chunk agents.SourceChunk, jc agents.JobContext) ([]*domain.Candidate, int, error) {
+	attempts := c.cfg.Research.MaxBatchRetries + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+
+		scoutTask := &domain.AgentTask{
+			ID:           uuid.New(),
+			JobID:        jobID,
+			Role:         "scout",
+			Status:       "running",
+			ModelID:      c.cfg.Models["scout"].ModelID,
+			AttemptCount: attempt + 1,
+		}
+		_ = c.store.CreateTask(ctx, scoutTask)
+
+		cands, _, err := c.scout.DiscoverCandidates(ctx, repoRef, chunk, jc)
+
+		now := time.Now().UTC()
+		scoutTask.FinishedAt = &now
+		if err != nil {
+			scoutTask.Status = "failed"
+			scoutTask.ErrorSummary = err.Error()
+			_ = c.store.UpdateTask(ctx, scoutTask)
+			lastErr = err
+
+			if isOversizeRefusal(err) {
+				halves := splitChunk(chunk)
+				if len(halves) > 1 {
+					telemetry.Info(fmt.Sprintf("Batch %d was too large for the model; reading it as %d smaller batches", chunk.Index, len(halves)), map[string]interface{}{
+						"job_id": jobID.String(),
+						"batch":  chunk.Index,
+					})
+					var all []*domain.Candidate
+					failures := 0
+					for _, half := range halves {
+						halfCands, halfFailures, halfErr := c.scoutChunk(ctx, jobID, repoRef, half, jc)
+						all = append(all, halfCands...)
+						failures += halfFailures
+						if halfErr != nil {
+							return all, failures + 1, halfErr
+						}
+					}
+					return all, failures, nil
+				}
+			}
+			continue
+		}
+
+		scoutTask.Status = "completed"
+		_ = c.store.UpdateTask(ctx, scoutTask)
+		return cands, 0, nil
+	}
+
+	return nil, 1, lastErr
+}
+
+// minSplitBytes is the smallest batch the Scout is asked to read. Below this a batch is
+// not split again: the model is not refusing because of the size.
+const minSplitBytes = 8000
+
+// isOversizeRefusal reports whether the model refused because the batch was too large for
+// its output budget, rather than because of a rate limit or a broken request.
+func isOversizeRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "output_token_limit_exceeded") ||
+		strings.Contains(msg, "exhausted its output token limit") ||
+		strings.Contains(msg, "maximum context length") ||
+		strings.Contains(msg, "context length exceeded")
+}
+
+// splitChunk divides a batch at its file boundaries, so each half holds whole files.
+func splitChunk(chunk agents.SourceChunk) []agents.SourceChunk {
+	const marker = "\n--- File: "
+	parts := strings.Split(chunk.Text, marker)
+	if len(parts) < 3 {
+		return nil // nothing to split at a file boundary
+	}
+
+	half := len(parts) / 2
+	groups := [][]string{parts[:half], parts[half:]}
+
+	var chunks []agents.SourceChunk
+	for _, group := range groups {
+		text := marker + strings.Join(group, marker)
+		if len(text) < minSplitBytes {
+			continue
+		}
+		var files []string
+		for _, part := range group {
+			name := part
+			if idx := strings.Index(part, "\n"); idx > 0 {
+				name = part[:idx]
+			}
+			if idx := strings.Index(name, " ("); idx > 0 {
+				name = name[:idx]
+			}
+			if name != "" {
+				files = append(files, name)
+			}
+		}
+		chunks = append(chunks, agents.SourceChunk{
+			Index: chunk.Index,
+			Total: chunk.Total,
+			Files: files,
+			Text:  text,
+		})
+	}
+	return chunks
 }
 
 // loadScope reads the audit scope recorded on the job. A job without a scope audits the whole
