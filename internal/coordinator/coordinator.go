@@ -550,6 +550,9 @@ func (c *Coordinator) jobContext(root string, sc *scope.Scope, files []string, c
 	if kind.Language != "" {
 		jc.TargetNote = fmt.Sprintf("Language: %s. Build tool: %s. The project's own tests live in %s/ and are run with `%s`. A validation plan that proves a finding must use that toolchain.",
 			kind.Language, kind.BuildTool, kind.TestDir, kind.TestCommand)
+		if kind.PoCAdvice != "" {
+			jc.TargetNote += "\n\n" + kind.PoCAdvice
+		}
 	}
 	return jc
 }

@@ -201,6 +201,8 @@ type ProjectKind struct {
 	TestCommand string
 	// TestDir is where the tests live, relative to the project root.
 	TestDir string
+	// PoCAdvice tells the agent how to write a proof of concept for this project.
+	PoCAdvice string
 }
 
 // DescribeProject looks at the files in scope and says what the target is.
@@ -233,10 +235,12 @@ func DescribeProject(root string, files []string) ProjectKind {
 		kind.BuildTool = "Foundry (forge)"
 		kind.TestCommand = "forge test"
 		kind.TestDir = "test"
+		kind.PoCAdvice = "A proof of concept can be a `forge script` instead of a `forge test`: a script compiles the source and the script file only, while the test suite compiles every test file in the project, which on a large Solidity codebase takes a very long time. Write the script into the package directory and run it with `forge script <file>.s.sol`. Make the script revert with a message that contains your failure_signature: a revert exits non-zero and prints the reason."
 	case has("hardhat.config.js"), has("hardhat.config.ts"):
 		kind.Language = "Solidity"
 		kind.BuildTool = "Hardhat"
 		kind.TestCommand = "npx hardhat test"
+		kind.PoCAdvice = "Write the proof of concept as a Hardhat test and run it with `npx hardhat test <file>`."
 	case has("Cargo.toml"):
 		kind.Language = "Rust"
 		kind.BuildTool = "Cargo"
