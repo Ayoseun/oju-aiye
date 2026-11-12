@@ -111,6 +111,9 @@ func (r *Runner) Execute(ctx context.Context, req ExecutionRequest) (*domain.Val
 			"GONOPROXY=*",
 			"CARGO_NET_OFFLINE=true",
 			"npm_config_offline=true",
+			// Foundry would otherwise try to fetch solc over the network. The compiler
+			// is already installed, so tell it not to look for one.
+			"FOUNDRY_OFFLINE=true",
 		)
 	}
 	cmd.Env = env
@@ -223,6 +226,14 @@ func sandboxEnv(sandboxDir string) []string {
 		"PATH", "LANG", "LC_ALL", "TERM",
 		"GOROOT", "GOPATH", "GOCACHE", "GOMODCACHE",
 		"CARGO_HOME", "RUSTUP_HOME", "FOUNDRY_DIR", "NODE_PATH",
+		// Where Foundry keeps the solc versions it installed. HOME points at the
+		// sandbox, so without this the compiler would look in a place that does not
+		// exist and try to download one.
+		"SVM_HOME",
+		// A shared Foundry cache and artifact directory. Compiling a large Solidity
+		// project takes minutes; when the cache is warm, only the files a test adds
+		// have to be compiled.
+		"FOUNDRY_CACHE_PATH", "FOUNDRY_OUT",
 	}
 	for _, k := range passthrough {
 		if v, ok := os.LookupEnv(k); ok {
@@ -282,7 +293,7 @@ func copySourceTree(src, dst string, maxBytes int64) error {
 		}
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || skipStagedDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(target, 0o755)
@@ -313,6 +324,16 @@ func copySourceTree(src, dst string, maxBytes int64) error {
 		}
 		return out.Close()
 	})
+}
+
+// skipStagedDir reports whether a directory holds build output rather than source. Staging
+// it would waste the size budget and can confuse the build tool it belongs to.
+func skipStagedDir(name string) bool {
+	switch name {
+	case "node_modules", "target", "out", "cache":
+		return true
+	}
+	return false
 }
 
 // storeContentAddressed stores content as <sha256>.log so an artifact://<sha256>
