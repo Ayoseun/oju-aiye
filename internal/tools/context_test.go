@@ -285,3 +285,35 @@ func TestFileContextForSymbolAnywhereFindsTheFunctionInAnotherFile(t *testing.T)
 		t.Errorf("expected the excerpt to name the file it came from, got:\n%s", ctx[:200])
 	}
 }
+
+// A Solidity signature spans several lines before the opening brace. The excerpt must
+// include the body, not just the first line of the signature.
+func TestFileContextForSymbolIncludesAMultiLineSignature(t *testing.T) {
+	source := `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.35;
+
+contract CfdEngine {
+    uint256 public sideBorrowBaseAssets;
+
+    function _applySideBorrowBaseDelta(
+        uint256 oldBorrowBaseAssets,
+        uint256 newBorrowBaseAssets
+    ) internal pure returns (uint256) {
+        return oldBorrowBaseAssets + newBorrowBaseAssets;
+    }
+
+    function other() external pure returns (uint256) {
+        return 1;
+    }
+}
+`
+	root := writeTree(t, map[string]string{"src/CfdEngine.sol": source})
+
+	ctx := FileContextForSymbol(root, "src/CfdEngine.sol", 1, 1, "_applySideBorrowBaseDelta", 8000)
+	if !strings.Contains(ctx, "return oldBorrowBaseAssets + newBorrowBaseAssets") {
+		t.Errorf("expected the body of the function, got:\n%s", ctx)
+	}
+	if !strings.Contains(ctx, "uint256 newBorrowBaseAssets") {
+		t.Errorf("expected the whole signature, got:\n%s", ctx)
+	}
+}

@@ -486,7 +486,7 @@ func symbolVariants(symbol string) []string {
 
 // findDefinitionExact looks for one exact spelling of a symbol.
 func findDefinitionExact(lines []string, symbol string) (int, int, bool) {
-	keywords := []string{"function ", "func ", "fn ", "contract ", "modifier ", "event ", "error ", "struct ", "interface ", "library "}
+	keywords := []string{"function ", "func ", "fn ", "contract ", "modifier ", "event ", "error ", "struct ", "interface ", "library ", "mapping ", "public ", "private ", "internal "}
 	lowerSymbol := strings.ToLower(symbol)
 
 	for i, line := range lines {
@@ -504,10 +504,16 @@ func findDefinitionExact(lines []string, symbol string) (int, int, bool) {
 			continue
 		}
 
-		// The body ends where the braces balance again.
+		// The body ends where the braces balance again. A signature often spans
+		// several lines before the opening brace, so the search for it continues
+		// until a brace is found or the declaration ends with a semicolon.
 		depth := 0
 		opened := false
-		for j := i; j < len(lines); j++ {
+		for j := i; j < len(lines) && j <= i+signatureLookaheadLines; j++ {
+			if strings.Contains(lines[j], ";") && !opened {
+				// A declaration without a body: the definition is that line.
+				return i, i, true
+			}
 			for _, r := range lines[j] {
 				switch r {
 				case '{':
@@ -520,15 +526,15 @@ func findDefinitionExact(lines []string, symbol string) (int, int, bool) {
 			if opened && depth <= 0 {
 				return i, j, true
 			}
-			if !opened && j > i {
-				// A declaration without a body: the definition is that line.
-				return i, i, true
-			}
 		}
 		return i, i, true
 	}
 	return 0, 0, false
 }
+
+// signatureLookaheadLines is how far past the definition line the opening brace of a
+// body is looked for. A multi-line signature is the common case in Solidity.
+const signatureLookaheadLines = 60
 
 // windowAround returns the excerpt of lines that contains the cited range, growing the
 // window outwards until it fits the budget.
