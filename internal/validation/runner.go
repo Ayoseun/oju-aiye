@@ -61,6 +61,11 @@ func (r *Runner) Execute(ctx context.Context, req ExecutionRequest) (*domain.Val
 	}
 	defer os.RemoveAll(sandboxDir) // Guarantees destruction after run
 
+	// Foundry keeps the compilers it installed under the user's home directory. The
+	// sandbox scrubs HOME, so without this the compiler is invisible and forge tries
+	// to download one, which it cannot do without a network.
+	linkFoundryCompilers(sandboxDir)
+
 	// 2. Set timeout bounded by config
 	maxRuntime := r.cfg.MaxRuntime()
 	if maxRuntime <= 0 {
@@ -237,34 +242,7 @@ func sandboxEnv(sandboxDir string) []string {
 			env = append(env, k+"="+v)
 		}
 	}
-	// Where Foundry keeps the solc versions it installed. HOME points at the sandbox,
-	// so without this the compiler would look in a place that does not exist and try
-	// to download one.
-	if v, ok := os.LookupEnv("SVM_HOME"); ok && v != "" {
-		env = append(env, "SVM_HOME="+v)
-	} else if dir := defaultSVMHome(); dir != "" {
-		env = append(env, "SVM_HOME="+dir)
-	}
 	return env
-}
-
-// defaultSVMHome finds the directory where the solc versions are installed. Foundry keeps
-// them in ~/.svm on Linux and in "~/Library/Application Support/svm" on macOS.
-func defaultSVMHome() string {
-	home := os.Getenv("HOME")
-	if home == "" {
-		return ""
-	}
-	candidates := []string{filepath.Join(home, ".svm")}
-	if runtime.GOOS == "darwin" {
-		candidates = append([]string{filepath.Join(home, "Library", "Application Support", "svm")}, candidates...)
-	}
-	for _, dir := range candidates {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
-		}
-	}
-	return ""
 }
 
 var (
@@ -348,6 +326,35 @@ func copySourceTree(src, dst string, maxBytes int64) error {
 		}
 		return out.Close()
 	})
+}
+
+// linkFoundryCompilers points the compiler directory Foundry expects under HOME at the
+// one on the host. It is a symlink to a directory of read-only binaries: the sandbox's
+// HOME stays inside the sandbox, so no host file is otherwise exposed.
+func linkFoundryCompilers(sandboxDir string) {
+	hostHome := os.Getenv("HOME")
+	if hostHome == "" {
+		return
+	}
+
+	var rel string
+	if runtime.GOOS == "darwin" {
+		rel = filepath.Join("Library", "Application Support", "svm")
+	} else {
+		rel = ".svm"
+	}
+
+	source := filepath.Join(hostHome, rel)
+	info, err := os.Stat(source)
+	if err != nil || !info.IsDir() {
+		return
+	}
+
+	target := filepath.Join(sandboxDir, rel)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return
+	}
+	_ = os.Symlink(source, target)
 }
 
 // skipStagedDir reports whether a directory holds build output rather than source. Staging

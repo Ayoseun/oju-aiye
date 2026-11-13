@@ -235,7 +235,9 @@ func DescribeProject(root string, files []string) ProjectKind {
 		kind.BuildTool = "Foundry (forge)"
 		kind.TestCommand = "forge test"
 		kind.TestDir = "test"
-		kind.PoCAdvice = "A proof of concept can be a `forge script` instead of a `forge test`: a script compiles the source and the script file only, while the test suite compiles every test file in the project, which on a large Solidity codebase takes a very long time. Write the script into the package directory and run it with `forge script <file>.s.sol`. Make the script revert with a message that contains your failure_signature: a revert exits non-zero and prints the reason."
+		kind.PoCAdvice = "A proof of concept can be a `forge script` instead of a `forge test`: a script compiles the source and the script file only, while the test suite compiles every test file in the project, which on a large Solidity codebase takes a very long time.\n" +
+			"Write the script into the package directory and run it with `forge script <file>.s.sol --sig \"run()\"`. The script must make the proof of concept fail: `require(false, \"<your failure_signature>\")` or an explicit `revert(\"<your failure_signature>\")`. A revert exits non-zero and prints the reason, which is what makes the finding reproducible.\n" +
+			"The command must create the file and run it in one go, and must not pipe the output of forge: a pipeline reports the exit code of its last command, so a failed compile would look like a clean pass."
 	case has("hardhat.config.js"), has("hardhat.config.ts"):
 		kind.Language = "Solidity"
 		kind.BuildTool = "Hardhat"
